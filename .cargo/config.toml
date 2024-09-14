@@ -1,0 +1,15 @@
+
+[build]
+# Set the default target to match the Cortex-M33 in the RP2350
+target = "thumbv8m.main-none-eabihf"
+
+# This is the hard-float ABI for Arm mode.
+#
+# The FPU is enabled by default, and float function arguments use FPU
+# registers.
+[target.thumbv8m.main-none-eabihf]
+
+# Use picotool for loading.
+#
+# Load an elf, skipping unchanged flash sectors, verify it, and execute it
+runner = "picotool load -u -v -x -t elf"
