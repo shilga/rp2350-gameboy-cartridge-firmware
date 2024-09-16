@@ -8,18 +8,22 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
-use embassy_rp::uart;
+use embassy_rp::peripherals::{PIO0, UART1};
+use embassy_rp::pio::{
+    Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection,
+    StateMachine,
+};
+use embassy_rp::uart::{self};
+use embassy_rp::{bind_interrupts, clocks};
+use embassy_rp::{block::ImageDef, uart::UartTx};
+use embassy_time::Timer;
+use embedded_io::{ErrorType, Write};
 use fixed::types::U24F8;
 use fixed_macro::fixed;
 use smart_leds::RGB8;
-use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::{bind_interrupts, clocks};
-use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{
-    Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine,
-};
-use embassy_time::Timer;
+use {defmt_serial as _, panic_probe as _};
+
+use static_cell::StaticCell;
 
 #[link_section = ".start_block"]
 #[used]
@@ -44,12 +48,7 @@ pub struct Ws2812<'d, P: Instance, const S: usize> {
 }
 
 impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
-    pub fn new(
-        pio: &mut Common<'d, P>,
-        mut sm: StateMachine<'d, P, S>,
-        pin: impl PioPin,
-    ) -> Self {
-
+    pub fn new(pio: &mut Common<'d, P>, mut sm: StateMachine<'d, P, S>, pin: impl PioPin) -> Self {
         // Setup sm0
 
         // prepare the PIO program
@@ -84,6 +83,7 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
         let out_pin = pio.make_pio_pin(pin);
         cfg.set_out_pins(&[&out_pin]);
         cfg.set_set_pins(&[&out_pin]);
+        cfg.set_in_pins(&[&out_pin]);
 
         cfg.use_program(&pio.load_program(&prg), &[&out_pin]);
 
@@ -105,14 +105,13 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
         sm.set_config(&cfg);
         sm.set_enable(true);
 
-        Self {
-            sm,
-        }
+        Self { sm }
     }
 
     pub fn write(&mut self, color: &RGB8) {
         // Precompute the word bytes from the color
-        let word = (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8);
+        let word =
+            (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8);
 
         // push to sm
         self.sm.tx().push(word);
@@ -121,14 +120,42 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
     }
 }
 
+static SERIAL: StaticCell<SerialWrapper> = StaticCell::new();
+
+struct SerialWrapper<'a> {
+    uart: UartTx<'a, UART1, embassy_rp::uart::Blocking>,
+}
+
+impl<'a> ErrorType for SerialWrapper<'a> {
+    type Error = uart::Error;
+}
+
+impl<'a> Write for SerialWrapper<'a> {
+    fn write(&mut self, word: &[u8]) -> Result<usize, uart::Error> {
+        self.uart.blocking_write(word).unwrap();
+        Ok(word.len())
+    }
+
+    fn flush(&mut self) -> Result<(), uart::Error> {
+        self.uart.blocking_flush()
+    }
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let config = uart::Config::default();
-    let mut uart = uart::UartTx::new_blocking(p.UART1, p.PIN_4, config);
-    uart.blocking_write("Hello World!\r\n".as_bytes()).unwrap();
+    let uart = uart::UartTx::new_blocking(p.UART1, p.PIN_4, config);
 
-    let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
+    let serialwrapper = SerialWrapper { uart };
+
+    defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
+
+    defmt::info!("Hello defmt-world!");
+
+    let Pio {
+        mut common, sm0, ..
+    } = Pio::new(p.PIO0, Irqs);
 
     let ws2812 = Ws2812::new(&mut common, sm0, p.PIN_47);
 
@@ -136,8 +163,8 @@ async fn main(spawner: Spawner) {
     spawner.spawn(blink(ws2812)).unwrap();
 
     loop {
-        uart.blocking_write("hello there!\r\n".as_bytes()).unwrap();
-        cortex_m::asm::delay(1_000_000);
+        defmt::info!("hello there!");
+        Timer::after_millis(1500).await;
     }
 }
 
@@ -153,6 +180,5 @@ async fn blink(mut led: Ws2812<'static, PIO0, 0>) {
             led.write(&blue);
             Timer::after_millis(500).await;
         }
-
     }
 }
