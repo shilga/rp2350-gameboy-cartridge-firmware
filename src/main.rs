@@ -9,9 +9,10 @@
 
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
+use embassy_rp::pac;
 use embassy_rp::peripherals::USB;
-use embassy_rp::peripherals::{PIO0, UART1};
-use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
+use embassy_rp::peripherals::{PIO0, PIO1, UART1};
+use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio, PioPin};
 use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_rp::{block::ImageDef, uart::UartTx};
@@ -24,6 +25,8 @@ use embassy_time::Timer;
 use embedded_io::{ErrorType, Write};
 use smart_leds::RGB8;
 
+use core::{mem, ptr};
+
 use defmt::info;
 use {defmt_serial as _, panic_probe as _};
 
@@ -34,6 +37,12 @@ use crate::ws2812::Ws2812;
 
 mod picotool_reset;
 use crate::picotool_reset::PicotoolReset;
+
+mod gb_pio;
+use crate::gb_pio::{GbDataOut, GbRomDetect, GbRomLower};
+
+mod gb_dma;
+use crate::gb_dma::GbReadDmaConfig;
 
 #[link_section = ".start_block"]
 #[used]
@@ -51,6 +60,7 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
+    PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
     USBCTRL_IRQ => UsbInterruptHandler<USB>;
 });
 
@@ -158,6 +168,30 @@ async fn main(spawner: Spawner) {
 
     // Build the builder.
     let usb = builder.build();
+
+    let Pio {
+        mut common,
+        sm0,
+        sm1,
+        sm2,
+        sm3,
+        ..
+    } = Pio::new(p.PIO1, Irqs);
+    let gb_data_out_pio = GbDataOut::new(&mut common, &pac::PIO1, sm0);
+    let gb_rom_detect_pio = GbRomDetect::new(&mut common, &pac::PIO1, sm1);
+    let gb_rom_lower_pio = GbRomLower::new(&mut common, &pac::PIO1, sm2);
+
+    static mut TESTVAR: u32 = 0;
+    static mut TESTVARPTR: *mut u32 = unsafe { ptr::addr_of_mut!(TESTVAR) };
+
+    let read_dma_lower = GbReadDmaConfig::new(
+        p.DMA_CH0,
+        p.DMA_CH1,
+        p.DMA_CH2,
+        unsafe { ptr::addr_of_mut!(TESTVARPTR) },
+        gb_rom_lower_pio.get_rx_reg(),
+        gb_data_out_pio.get_tx_reg(),
+    );
 
     // Spawned tasks run in the background, concurrently.
     spawner.spawn(blink(ws2812)).unwrap();
