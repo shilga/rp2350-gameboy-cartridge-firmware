@@ -1,0 +1,20 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Cortex GDB",
+            "cwd": "${workspaceFolder}",
+            "executable": "target/thumbv8m.main-none-eabihf/debug/embassy-rp2350-examples",
+            "svdPath": "${env:PICO_SDK_PATH}/src/rp2350/hardware_regs/RP2350.svd",
+            "request": "launch",
+            "type": "cortex-debug",
+            "runToEntryPoint": "main",
+            "servertype": "external",
+            "gdbTarget": "host.containers.internal:3333",
+            "gdbPath": "gdb-multiarch"
+        }
+    ]
+}

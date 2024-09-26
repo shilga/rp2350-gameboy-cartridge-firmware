@@ -76,11 +76,12 @@ SECTIONS {
 } INSERT AFTER .uninit;
 
 SECTIONS {
-    .gb_rom_memory : ALIGN(4)
+    .gb_rom_memory (NOLOAD): ALIGN(4)
     {
+        _s_gb_rom_memory = .;
         KEEP(*(.gb_rom_memory));
     } > GB_ROM_MEMORY
-} INSERT AFTER .data;
+} INSERT AFTER .end_block;
 
 PROVIDE(start_to_end = __end_block_addr - __start_block_addr);
 PROVIDE(end_to_start = __start_block_addr - __end_block_addr);

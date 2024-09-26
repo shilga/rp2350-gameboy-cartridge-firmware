@@ -8,10 +8,11 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_rp::bind_interrupts;
+use embassy_rp::{bind_interrupts, gpio};
+use embassy_rp::gpio::{Level, Output};
 use embassy_rp::pac;
 use embassy_rp::peripherals::USB;
-use embassy_rp::peripherals::{PIO0, PIO1, UART1};
+use embassy_rp::peripherals::{PIO0, PIO1, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio, PioPin};
 use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
@@ -25,7 +26,8 @@ use embassy_time::Timer;
 use embedded_io::{ErrorType, Write};
 use smart_leds::RGB8;
 
-use core::{mem, ptr};
+use core::mem::MaybeUninit;
+use core::ptr;
 
 use defmt::info;
 use {defmt_serial as _, panic_probe as _};
@@ -70,7 +72,7 @@ const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321
 static SERIAL: StaticCell<SerialWrapper> = StaticCell::new();
 
 struct SerialWrapper<'a> {
-    uart: UartTx<'a, UART1, embassy_rp::uart::Blocking>,
+    uart: UartTx<'a, UART0, embassy_rp::uart::Blocking>,
 }
 
 impl<'a> ErrorType for SerialWrapper<'a> {
@@ -88,17 +90,28 @@ impl<'a> Write for SerialWrapper<'a> {
     }
 }
 
+#[link_section = ".gb_rom_memory"]
+#[used]
+pub static mut GB_ROM_MEMORY: MaybeUninit<[u8; 4 * 0x4000]> = MaybeUninit::uninit();
+
+extern "C" {
+    static mut _s_gb_rom_memory: u8;
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let config = uart::Config::default();
-    let uart = uart::UartTx::new_blocking(p.UART1, p.PIN_4, config);
+    // let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
 
-    let serialwrapper = SerialWrapper { uart };
+    // let serialwrapper = SerialWrapper { uart };
 
-    defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
+    // defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
 
     info!("Hello defmt-world!");
+
+    let mut reset_pin = Output::new(p.PIN_45, Level::High);
+    let mut _gb_bus_en = Output::new(p.PIN_44, Level::High);
 
     let Pio {
         mut common, sm0, ..
@@ -177,29 +190,93 @@ async fn main(spawner: Spawner) {
         sm3,
         ..
     } = Pio::new(p.PIO1, Irqs);
-    let gb_data_out_pio = GbDataOut::new(&mut common, &pac::PIO1, sm0);
-    let gb_rom_detect_pio = GbRomDetect::new(&mut common, &pac::PIO1, sm1);
-    let gb_rom_lower_pio = GbRomLower::new(&mut common, &pac::PIO1, sm2);
+    let mut gb_rom_detect_pio = GbRomDetect::new(&mut common, &pac::PIO1, sm2, p.PIN_46);
+    let mut gb_rom_lower_pio = GbRomLower::new(&mut common, &pac::PIO1, sm0);
+    let mut gb_data_out_pio = GbDataOut::new(&mut common, &pac::PIO1, sm3);
 
-    static mut TESTVAR: u32 = 0;
-    static mut TESTVARPTR: *mut u32 = unsafe { ptr::addr_of_mut!(TESTVAR) };
+    info!("gpiobase: {}", pac::PIO1.gpiobase().read().gpiobase());
 
-    let read_dma_lower = GbReadDmaConfig::new(
+    let gb_pio_pins = [
+        common.make_pio_pin(p.PIN_17),
+        common.make_pio_pin(p.PIN_18),
+        common.make_pio_pin(p.PIN_19),
+        // addr pins
+        common.make_pio_pin(p.PIN_20),
+        common.make_pio_pin(p.PIN_21),
+        common.make_pio_pin(p.PIN_22),
+        common.make_pio_pin(p.PIN_23),
+        common.make_pio_pin(p.PIN_24),
+        common.make_pio_pin(p.PIN_25),
+        common.make_pio_pin(p.PIN_26),
+        common.make_pio_pin(p.PIN_27),
+        common.make_pio_pin(p.PIN_28),
+        common.make_pio_pin(p.PIN_29),
+        common.make_pio_pin(p.PIN_30),
+        common.make_pio_pin(p.PIN_31),
+        common.make_pio_pin(p.PIN_32),
+        common.make_pio_pin(p.PIN_33),
+        common.make_pio_pin(p.PIN_34),
+        common.make_pio_pin(p.PIN_35),
+        //data pins
+        common.make_pio_pin(p.PIN_36),
+        common.make_pio_pin(p.PIN_37),
+        common.make_pio_pin(p.PIN_38),
+        common.make_pio_pin(p.PIN_39),
+        common.make_pio_pin(p.PIN_40),
+        common.make_pio_pin(p.PIN_41),
+        common.make_pio_pin(p.PIN_42),
+        common.make_pio_pin(p.PIN_43),   
+    ];
+
+    for mut pin in gb_pio_pins {
+        // pin.set_pull(gpio::Pull::None);
+        pac::PADS_BANK0.gpio(pin.pin() as usize).modify(|w|{
+            w.set_ie(true);
+        })
+    }
+
+    let gb_rom = unsafe {
+        core::slice::from_raw_parts_mut(ptr::addr_of!(_s_gb_rom_memory) as *mut u8, 0x4000)
+    };
+
+    unsafe {
+        info!("pos0 before: {}", _s_gb_rom_memory);
+    }
+
+    let mut testvarptr = unsafe { ptr::addr_of_mut!(_s_gb_rom_memory) };
+    info!("testvarptr {}", testvarptr);
+
+    let bytes = include_bytes!("bootloader.gb");
+    gb_rom[..bytes.len()].copy_from_slice(bytes);
+
+    unsafe {
+        info!("pos 0x30 after: {}", *(testvarptr.add(0x30usize)) );
+    }
+
+    let _read_dma_lower = GbReadDmaConfig::new(
         p.DMA_CH0,
         p.DMA_CH1,
         p.DMA_CH2,
-        unsafe { ptr::addr_of_mut!(TESTVARPTR) },
+        ptr::addr_of_mut!(testvarptr),
         gb_rom_lower_pio.get_rx_reg(),
         gb_data_out_pio.get_tx_reg(),
+        gb_rom_lower_pio.get_rx_dreq(),
     );
 
     // Spawned tasks run in the background, concurrently.
     spawner.spawn(blink(ws2812)).unwrap();
     spawner.spawn(usb_task(usb)).unwrap();
 
+    gb_rom_lower_pio.start();
+    gb_data_out_pio.start();
+    gb_rom_detect_pio.start();
+
+    reset_pin.set_low();
+
     loop {
-        defmt::info!("hello there!");
+        // defmt::info!("hello there!");
         Timer::after_millis(1500).await;
+        //reset_pin.toggle();
     }
 }
 

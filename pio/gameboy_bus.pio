@@ -1,16 +1,16 @@
 
-.define public pin_clk         1
-.define public pin_rd          2
-.define public pin_a15        18
-.define public pin_a14        17
-.define public pin_a13         16
-.define public pin_ad_base     4
-.define public pin_data_base   20
+.define public pin_clk         17
+.define public pin_rd          18
+.define public pin_a15        35
+.define public pin_a14        34
+.define public pin_a13         33
+.define public pin_ad_base     20
+.define public pin_data_base   36
 
 ; pins need to be shifted for internal use as PIO is set to upper pins
 
-.define PIN_CLK_INT (pin_clk - 16)
-.define PIN_A15_INT (pin_a15 - 16)
+.define PIN_CLK_INT 1
+.define PIN_A15_INT 19
 
 .program gameboy_bus_write_to_data
 .wrap_target
@@ -18,31 +18,33 @@
     out  pins 8                               ; output 8 bits of data
     mov  osr ~null                             ; OSR=FFFFFFFF
     out  pindirs 8                             ; start driving the data bus
-    wait 0 gpio PIN_CLK_INT                        ; wait for clk
+    wait 0 pin 0                        ; wait for clk
     mov  osr null
-    wait 1 gpio PIN_CLK_INT[3]                     ; wait for clk
+    wait 1 pin 0[3]                     ; wait for clk
     out  pindirs 8                          ; stop driving the data bus
     .wrap ; wrap back to beginning
 
 
 .program gameboy_bus_detect_a15_low_a14_irqs
+.side_set 1 opt
 a14_high:
     irq set 1
 .wrap_target
-    wait 0 gpio PIN_CLK_INT
+    wait 0 pin 14  ; wait for clk to become low
 public entry_point:
-    wait 1 gpio PIN_CLK_INT[2]
-    mov  isr null
+    nop side 1
+    wait 1 pin 14 [2] ; wait for clk to become high
+    mov  isr null side 0
     in pins 1 ; shift in a15
     mov y isr ; store a15 pin in y
     jmp  !y hdma_read ; GBC has the HDMA read which does not strobe A15
-    wait 0 gpio PIN_A15_INT
+    wait 0 pin 0 ; wait for a15 to become low
 continue_hdma_read:
     jmp pin a14_high ; if A14 is high
     irq set 0 ; if a A14 is low
     .wrap
 hdma_read:
-    jmp continue_hdma_read [30]
+    jmp continue_hdma_read [7]
 
 
 .program gameboy_bus_rom_low

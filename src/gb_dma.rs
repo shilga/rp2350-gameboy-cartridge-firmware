@@ -2,6 +2,8 @@ use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::pac;
 use embassy_rp::{into_ref, Peripheral, PeripheralRef};
 
+use defmt::info;
+
 const REG_ALIAS_SET_BITS: u32 = 0x2u32 << 12u32;
 
 pub struct GbReadDmaConfig<'d> {
@@ -15,13 +17,19 @@ impl<'d> GbReadDmaConfig<'d> {
         dma0: impl Peripheral<P = impl Channel> + 'd,
         dma1: impl Peripheral<P = impl Channel> + 'd,
         dma2: impl Peripheral<P = impl Channel> + 'd,
-        read_base_addr_ptr: *mut *mut u32,
+        read_base_addr_ptr: *mut *mut u8,
         read_addr_rx_fifo: *mut u32,
         write_to_data_tx_fifo: *mut u32,
+        dreq: pac::dma::vals::TreqSel,
     ) -> Self {
         into_ref!(dma0);
         into_ref!(dma1);
         into_ref!(dma2);
+
+        info!("read_base_addr_ptr: {:#010x}", read_base_addr_ptr as u32);
+        info!("read_addr_rx_fifo: {:#010x}", read_addr_rx_fifo as u32);
+        info!("write_to_data_tx_fifo: {:#010x}", write_to_data_tx_fifo as u32);
+        info!("dreq: {:x}", dreq as u32);
 
         let dma_ch0: PeripheralRef<'d, AnyChannel> = dma0.map_into();
         let dma_ch1: PeripheralRef<'d, AnyChannel> = dma1.map_into();
@@ -51,10 +59,10 @@ impl<'d> GbReadDmaConfig<'d> {
         });
         p0.read_addr().write_value(read_addr_rx_fifo as u32);
         p0.write_addr().write_value(p1.read_addr().as_ptr() as u32);
-        p0.ctrl_trig().write(|w: &mut pac::dma::regs::CtrlTrig| {
+        p0.ctrl_trig().write(|w| {
             w.set_incr_read(false);
             w.set_incr_write(false);
-            w.set_treq_sel(pac::dma::vals::TreqSel::PERMANENT); // TODO
+            w.set_treq_sel(dreq);
             w.set_chain_to(dma_ch2.number());
             w.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
             w.set_en(true);
@@ -67,7 +75,7 @@ impl<'d> GbReadDmaConfig<'d> {
         p2.read_addr().write_value(read_base_addr_ptr as u32);
         p2.write_addr()
             .write_value((p1.al3_read_addr_trig().as_ptr() as u32) | REG_ALIAS_SET_BITS);
-        p2.ctrl_trig().write(|w: &mut pac::dma::regs::CtrlTrig| {
+        p2.ctrl_trig().write(|w| {
             w.set_incr_read(false);
             w.set_incr_write(false);
             w.set_treq_sel(pac::dma::vals::TreqSel::PERMANENT);

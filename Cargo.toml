@@ -6,14 +6,14 @@ license = "MIT OR Apache-2.0"
 
 
 [dependencies]
-embassy-embedded-hal = { git = "https://github.com/shilga/embassy", features = ["defmt"] }
-embassy-sync = { git = "https://github.com/shilga/embassy", features = ["defmt"] }
-embassy-executor = { git = "https://github.com/shilga/embassy", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { git = "https://github.com/shilga/embassy", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { git = "https://github.com/shilga/embassy", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xb", "binary-info"] }
-embassy-usb = { git = "https://github.com/shilga/embassy", features = ["defmt"] }
-embassy-futures = { git = "https://github.com/shilga/embassy"}
-embassy-usb-logger = { git = "https://github.com/shilga/embassy" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xb", "binary-info"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy"}
+embassy-usb-logger = { git = "https://github.com/embassy-rs/embassy" }
 
 
 defmt = "0.3"
