@@ -8,15 +8,18 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_rp::{bind_interrupts, gpio};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::pac;
 use embassy_rp::peripherals::USB;
 use embassy_rp::peripherals::{PIO0, PIO1, UART0};
-use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio, PioPin};
+use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
+use embassy_rp::{bind_interrupts, spi};
 use embassy_rp::{block::ImageDef, uart::UartTx};
+use embedded_hal_bus::spi::ExclusiveDevice;
+
+use embassy_embedded_hal::SetConfig;
 
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Config, UsbDevice};
@@ -24,6 +27,9 @@ use embassy_usb::{Config, UsbDevice};
 use embassy_time::Timer;
 
 use embedded_io::{ErrorType, Write};
+
+use embedded_sdmmc::sdcard::SdCard;
+
 use smart_leds::RGB8;
 
 use core::mem::MaybeUninit;
@@ -90,6 +96,20 @@ impl<'a> Write for SerialWrapper<'a> {
     }
 }
 
+struct DummyTimesource();
+impl embedded_sdmmc::TimeSource for DummyTimesource {
+    fn get_timestamp(&self) -> embedded_sdmmc::Timestamp {
+        embedded_sdmmc::Timestamp {
+            year_since_1970: 0,
+            zero_indexed_month: 0,
+            zero_indexed_day: 0,
+            hours: 0,
+            minutes: 0,
+            seconds: 0,
+        }
+    }
+}
+
 #[link_section = ".gb_rom_memory"]
 #[used]
 pub static mut GB_ROM_MEMORY: MaybeUninit<[u8; 4 * 0x4000]> = MaybeUninit::uninit();
@@ -100,6 +120,7 @@ extern "C" {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    embassy_rp::pac::SIO.spinlock(31).write_value(1);
     let p = embassy_rp::init(Default::default());
     let config = uart::Config::default();
     let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
@@ -225,12 +246,12 @@ async fn main(spawner: Spawner) {
         common.make_pio_pin(p.PIN_40),
         common.make_pio_pin(p.PIN_41),
         common.make_pio_pin(p.PIN_42),
-        common.make_pio_pin(p.PIN_43),   
+        common.make_pio_pin(p.PIN_43),
     ];
 
     for mut pin in gb_pio_pins {
         // pin.set_pull(gpio::Pull::None);
-        pac::PADS_BANK0.gpio(pin.pin() as usize).modify(|w|{
+        pac::PADS_BANK0.gpio(pin.pin() as usize).modify(|w| {
             w.set_ie(true);
         })
     }
@@ -250,7 +271,7 @@ async fn main(spawner: Spawner) {
     gb_rom[..bytes.len()].copy_from_slice(bytes);
 
     unsafe {
-        info!("pos 0x30 after: {}", *(testvarptr.add(0x30usize)) );
+        info!("pos 0x30 after: {}", *(testvarptr.add(0x30usize)));
     }
 
     let _read_dma_lower = GbReadDmaConfig::new(
@@ -272,6 +293,56 @@ async fn main(spawner: Spawner) {
     gb_rom_detect_pio.start();
 
     reset_pin.set_low();
+
+    // SPI clock needs to be running at <= 400kHz during initialization
+    let mut config = spi::Config::default();
+    config.frequency = 400_000;
+    let mut spi = spi::Spi::new_blocking(p.SPI0, p.PIN_2, p.PIN_3, p.PIN_0, config);
+
+    let cs_sd_pin = Output::new(p.PIN_1, Level::High);
+    let _cs_rtc_pin = Output::new(p.PIN_5, Level::High);
+
+    // pre-initialize with 74 clock cycles according to SD-card spec
+    spi.blocking_write(&[0xFF; 10]).unwrap();
+
+    let spi_dev = ExclusiveDevice::new_no_delay(spi, cs_sd_pin);
+
+    // open the sd card and fully initialize it
+    let sdcard = SdCard::new(spi_dev, embassy_time::Delay);
+    info!("Card size is {} bytes", sdcard.num_bytes().unwrap());
+
+    // Now that the card is initialized, the SPI clock can go faster
+    let mut config = spi::Config::default();
+    config.frequency = 16_000_000;
+    sdcard.spi(|dev| dev.bus_mut().set_config(&config)).ok();
+
+    // Now let's look for volumes (also known as partitions) on our block device.
+    // To do this we need a Volume Manager. It will take ownership of the block device.
+    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, DummyTimesource());
+
+    // Try and access Volume 0 (i.e. the first partition).
+    // The volume object holds information about the filesystem on that volume.
+    let mut volume0 = volume_mgr
+        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .unwrap();
+    info!("Volume 0: {:?}", defmt::Debug2Format(&volume0));
+
+    // Open the root directory (mutably borrows from the volume).
+    let mut root_dir = volume0.open_root_dir().unwrap();
+    root_dir
+        .iterate_dir(|entry| {
+            info!(
+                "{} {} {}",
+                defmt::Debug2Format(&entry.name),
+                entry.size,
+                if entry.attributes.is_directory() {
+                    "<DIR>"
+                } else {
+                    ""
+                }
+            );
+        })
+        .unwrap();
 
     loop {
         // defmt::info!("hello there!");

@@ -1,8 +1,8 @@
 use embassy_rp::{
     pac,
     pio::{
-        Common, Config, ExecConfig, Instance, PinConfig, PioPin, ShiftConfig, ShiftDirection, Direction,
-        StateMachine,
+        Common, Config, Direction, ExecConfig, Instance, PinConfig, PioPin, ShiftConfig,
+        ShiftDirection, StateMachine,
     },
     Peripherals,
 };
@@ -61,7 +61,7 @@ impl<'d, P: Instance, const S: usize> GbRomDetect<'d, P, S> {
     pub fn new(
         pio: &mut Common<'d, P>,
         p: &'static pac::pio::Pio,
-        mut sm: StateMachine<'d, P, S>
+        mut sm: StateMachine<'d, P, S>,
     ) -> Self {
         let program = pio_proc::pio_file!(
             "./pio/gameboy_bus.pio",
@@ -77,9 +77,9 @@ impl<'d, P: Instance, const S: usize> GbRomDetect<'d, P, S> {
             cfg.set_pins(pincfg);
         }
         let mut execcfg = ExecConfig::default();
-        execcfg.jmp_pin = program.public_defines.pin_a14 as u8 - 16;  // todo: offset should be calculated automatically
+        execcfg.jmp_pin = program.public_defines.pin_a14 as u8 - 16; // todo: offset should be calculated automatically
         unsafe {
-            cfg.set_exec(execcfg); 
+            cfg.set_exec(execcfg);
         }
         cfg.shift_in = ShiftConfig {
             auto_fill: false,

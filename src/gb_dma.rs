@@ -28,7 +28,10 @@ impl<'d> GbReadDmaConfig<'d> {
 
         info!("read_base_addr_ptr: {:#010x}", read_base_addr_ptr as u32);
         info!("read_addr_rx_fifo: {:#010x}", read_addr_rx_fifo as u32);
-        info!("write_to_data_tx_fifo: {:#010x}", write_to_data_tx_fifo as u32);
+        info!(
+            "write_to_data_tx_fifo: {:#010x}",
+            write_to_data_tx_fifo as u32
+        );
         info!("dreq: {:x}", dreq as u32);
 
         let dma_ch0: PeripheralRef<'d, AnyChannel> = dma0.map_into();

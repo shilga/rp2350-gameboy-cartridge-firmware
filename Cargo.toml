@@ -19,6 +19,7 @@ embassy-usb-logger = { git = "https://github.com/embassy-rs/embassy" }
 defmt = "0.3"
 #defmt-rtt = "0.4"
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-bus = { version = "0.1", features = ["async"] }
 embedded-io = { version = "0.6.1", features = ["defmt-03"] }
 defmt-serial = { version = "0.10.0" }
 fixed = "1.23.1"
@@ -31,5 +32,7 @@ pio = "0.2.1"
 pio-proc = "0.2.0"
 
 smart-leds = "0.3.0"
+
+embedded-sdmmc = { version= "0.8.0", features = ["defmt-log"], default-features = false }
 
 panic-probe = { version = "0.3", features = ["print-defmt"] }
