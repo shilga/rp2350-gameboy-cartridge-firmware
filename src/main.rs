@@ -102,11 +102,11 @@ extern "C" {
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let config = uart::Config::default();
-    // let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
+    let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
 
-    // let serialwrapper = SerialWrapper { uart };
+    let serialwrapper = SerialWrapper { uart };
 
-    // defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
+    defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
 
     info!("Hello defmt-world!");
 
@@ -190,7 +190,7 @@ async fn main(spawner: Spawner) {
         sm3,
         ..
     } = Pio::new(p.PIO1, Irqs);
-    let mut gb_rom_detect_pio = GbRomDetect::new(&mut common, &pac::PIO1, sm2, p.PIN_46);
+    let mut gb_rom_detect_pio = GbRomDetect::new(&mut common, &pac::PIO1, sm2);
     let mut gb_rom_lower_pio = GbRomLower::new(&mut common, &pac::PIO1, sm0);
     let mut gb_data_out_pio = GbDataOut::new(&mut common, &pac::PIO1, sm3);
 

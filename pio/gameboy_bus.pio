@@ -26,15 +26,13 @@
 
 
 .program gameboy_bus_detect_a15_low_a14_irqs
-.side_set 1 opt
 a14_high:
     irq set 1
 .wrap_target
     wait 0 pin 14  ; wait for clk to become low
 public entry_point:
-    nop side 1
     wait 1 pin 14 [2] ; wait for clk to become high
-    mov  isr null side 0
+    mov  isr null
     in pins 1 ; shift in a15
     mov y isr ; store a15 pin in y
     jmp  !y hdma_read ; GBC has the HDMA read which does not strobe A15

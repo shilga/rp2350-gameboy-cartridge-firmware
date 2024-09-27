@@ -61,11 +61,8 @@ impl<'d, P: Instance, const S: usize> GbRomDetect<'d, P, S> {
     pub fn new(
         pio: &mut Common<'d, P>,
         p: &'static pac::pio::Pio,
-        mut sm: StateMachine<'d, P, S>,
-        pin: impl PioPin
+        mut sm: StateMachine<'d, P, S>
     ) -> Self {
-        let debug_pin = pio.make_pio_pin(pin);
-
         let program = pio_proc::pio_file!(
             "./pio/gameboy_bus.pio",
             select_program("gameboy_bus_detect_a15_low_a14_irqs"),
@@ -73,11 +70,12 @@ impl<'d, P: Instance, const S: usize> GbRomDetect<'d, P, S> {
         );
         let mut cfg = Config::default();
         let mut pincfg = PinConfig::default();
-        pincfg.in_base = program.public_defines.pin_a15 as u8; // todo: offset should be calculated automatically
+        pincfg.in_base = program.public_defines.pin_a15 as u8;
+        pincfg.out_base = program.public_defines.pin_data_base as u8;
+        pincfg.out_count = 8;
         unsafe {
             cfg.set_pins(pincfg);
         }
-        cfg.set_set_pins(&[&debug_pin]); 
         let mut execcfg = ExecConfig::default();
         execcfg.jmp_pin = program.public_defines.pin_a14 as u8 - 16;  // todo: offset should be calculated automatically
         unsafe {
@@ -90,12 +88,9 @@ impl<'d, P: Instance, const S: usize> GbRomDetect<'d, P, S> {
         };
         let mut lprogram = pio.load_program(&program.program);
         lprogram.origin += program.public_defines.entry_point as u8; // offset the start
-        cfg.use_program(&lprogram, &[&debug_pin]);
-
-        // program.program.set_origin(origin)
+        cfg.use_program(&lprogram, &[]);
 
         sm.set_config(&cfg);
-        sm.set_pin_dirs(Direction::Out, &[&debug_pin]);
 
         Self { sm, p }
     }
