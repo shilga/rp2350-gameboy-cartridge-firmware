@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::pac;
 use embassy_rp::peripherals::USB;
-use embassy_rp::peripherals::{PIO0, PIO1, UART0};
+use embassy_rp::peripherals::{PIO0, PIO1, PIO2, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
@@ -52,6 +52,9 @@ use crate::gb_pio::{GbDataOut, GbRomDetect, GbRomLower};
 mod gb_dma;
 use crate::gb_dma::GbReadDmaConfig;
 
+mod hyperram;
+use crate::hyperram::HyperRam;
+
 #[link_section = ".start_block"]
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
@@ -69,6 +72,7 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
     PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
+    PIO2_IRQ_0 => PioInterruptHandler<PIO2>;
     USBCTRL_IRQ => UsbInterruptHandler<USB>;
 });
 
@@ -293,6 +297,36 @@ async fn main(spawner: Spawner) {
     gb_rom_detect_pio.start();
 
     reset_pin.set_low();
+
+    let Pio {
+        mut common, sm0, ..
+    } = Pio::new(p.PIO2, Irqs);
+    let mut hyperram = HyperRam::new(
+        &mut common,
+        sm0,
+        p.PIN_6,
+        p.PIN_7,
+        p.PIN_8,
+        p.PIN_9,
+        p.PIN_10,
+        p.PIN_11,
+        p.PIN_12,
+        p.PIN_13,
+        p.PIN_14,
+        p.PIN_15,
+        p.PIN_16,
+    );
+
+    hyperram.init();
+
+    let id0 = hyperram.read_cfg_blocking(hyperram::ID0);
+    let id1 = hyperram.read_cfg_blocking(hyperram::ID1);
+    let cfg0 = hyperram.read_cfg_blocking(hyperram::CFG0);
+    let cfg1 = hyperram.read_cfg_blocking(hyperram::CFG1);
+    info!(
+        "ID0 {:#x}, ID1 {:#x}, CFG0 {:#x}, CFG1 {:#x}",
+        id0, id1, cfg0, cfg1
+    );
 
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
