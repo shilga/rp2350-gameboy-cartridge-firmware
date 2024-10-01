@@ -30,6 +30,7 @@ use embedded_io::{ErrorType, Write};
 
 use embedded_sdmmc::sdcard::SdCard;
 
+use hyperram::HyperRamPins;
 use smart_leds::RGB8;
 
 use core::mem::MaybeUninit;
@@ -53,7 +54,7 @@ mod gb_dma;
 use crate::gb_dma::GbReadDmaConfig;
 
 mod hyperram;
-use crate::hyperram::HyperRam;
+use crate::hyperram::{HyperRam, HyperRamReadOnly};
 
 #[link_section = ".start_block"]
 #[used]
@@ -125,7 +126,7 @@ extern "C" {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     embassy_rp::pac::SIO.spinlock(31).write_value(1);
-    let p = embassy_rp::init(Default::default());
+    let mut p = embassy_rp::init(Default::default());
     let config = uart::Config::default();
     let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
 
@@ -296,14 +297,14 @@ async fn main(spawner: Spawner) {
     gb_data_out_pio.start();
     gb_rom_detect_pio.start();
 
-    reset_pin.set_low();
-
     let Pio {
-        mut common, sm0, ..
+        mut common,
+        mut sm0,
+        ..
     } = Pio::new(p.PIO2, Irqs);
-    let mut hyperram = HyperRam::new(
+
+    let mut hyperrampins = HyperRamPins::new(
         &mut common,
-        sm0,
         p.PIN_6,
         p.PIN_7,
         p.PIN_8,
@@ -317,23 +318,27 @@ async fn main(spawner: Spawner) {
         p.PIN_16,
     );
 
-    hyperram.init();
+    {
+        let mut hyperram = HyperRam::new(&mut common, &mut sm0, &hyperrampins);
 
-    let id0 = hyperram.read_cfg_blocking(hyperram::ID0);
-    let id1 = hyperram.read_cfg_blocking(hyperram::ID1);
-    let cfg0 = hyperram.read_cfg_blocking(hyperram::CFG0);
-    let cfg1 = hyperram.read_cfg_blocking(hyperram::CFG1);
-    info!(
-        "ID0 {:#x}, ID1 {:#x}, CFG0 {:#x}, CFG1 {:#x}",
-        id0, id1, cfg0, cfg1
-    );
+        hyperram.init();
 
-    let write_start_time = Instant::now();
-    hyperram.write_blocking(0, &gb_rom);
-    let write_duration = write_start_time.elapsed();
-    info!("Writing took {}", write_duration);
-    let mut test_read: [u8; 16] = [0; 16];
-    hyperram.read_blocking(0x100u32, &mut test_read);
+        let id0 = hyperram.read_cfg_blocking(hyperram::ID0);
+        let id1 = hyperram.read_cfg_blocking(hyperram::ID1);
+        let cfg0 = hyperram.read_cfg_blocking(hyperram::CFG0);
+        let cfg1 = hyperram.read_cfg_blocking(hyperram::CFG1);
+        info!(
+            "ID0 {:#x}, ID1 {:#x}, CFG0 {:#x}, CFG1 {:#x}",
+            id0, id1, cfg0, cfg1
+        );
+
+        let write_start_time = Instant::now();
+        hyperram.write_blocking(0, &gb_rom);
+        let write_duration = write_start_time.elapsed();
+        info!("Writing took {}", write_duration);
+        let mut test_read: [u8; 16] = [0; 16];
+        hyperram.read_blocking(0x100u32, &mut test_read);
+    }
 
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
@@ -384,6 +389,22 @@ async fn main(spawner: Spawner) {
             );
         })
         .unwrap();
+
+    let mut file = root_dir
+        .open_file_in_dir("TETRIS.GB", embedded_sdmmc::Mode::ReadOnly)
+        .unwrap();
+    let read_start_time = Instant::now();
+    let num_read = file.read(gb_rom).unwrap();
+    let read_duration = read_start_time.elapsed();
+    info!(
+        "Read {} bytes in {} ms",
+        num_read,
+        read_duration.as_millis()
+    );
+
+    let mut hyperram = HyperRamReadOnly::new(&mut common, sm0, hyperrampins);
+
+    reset_pin.set_low();
 
     loop {
         // defmt::info!("hello there!");

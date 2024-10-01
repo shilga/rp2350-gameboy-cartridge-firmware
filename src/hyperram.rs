@@ -2,7 +2,10 @@ use embassy_futures::block_on;
 use embassy_rp::{
     gpio::{Drive, SlewRate},
     pac,
-    pio::{Common, Config, Instance, PioPin, ShiftConfig, ShiftDirection, StateMachine},
+    pio::{
+        Common, Config, Instance, InstanceMemory, LoadedProgram, Pin, PioPin, ShiftConfig,
+        ShiftDirection, StateMachine,
+    },
 };
 
 pub const ID0: u32 = 0u32 << 12 | 0u32 << 1;
@@ -18,17 +21,13 @@ enum CmdFlags {
     RegRead = 0xC0,
 }
 
-pub struct HyperRam<'d, P: Instance, const S: usize> {
-    sm: StateMachine<'d, P, S>,
-    pos_r_lat: u8,
-    pos_w_lat: u8,
-    pos_finish: u8,
+pub struct HyperRamPins<'d, P: Instance> {
+    pub ctrl_pins: [Pin<'d, P>; 3],
+    pub dq_pins: [Pin<'d, P>; 8],
 }
-
-impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
+impl<'d, P: Instance> HyperRamPins<'d, P> {
     pub fn new(
         pio: &mut Common<'d, P>,
-        mut sm: StateMachine<'d, P, S>,
         rwds_pin: impl PioPin,
         clk_pin: impl PioPin,
         cs_pin: impl PioPin,
@@ -41,9 +40,7 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
         dq6_pin: impl PioPin,
         dq7_pin: impl PioPin,
     ) -> Self {
-        let program = pio_proc::pio_file!("./pio/hyperram.pio");
-
-        let mut ctrl_pins = [
+        let mut ctrl_pins: [embassy_rp::pio::Pin<'_, P>; 3] = [
             pio.make_pio_pin(rwds_pin),
             pio.make_pio_pin(clk_pin),
             pio.make_pio_pin(cs_pin),
@@ -76,12 +73,33 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
             })
         }
 
+        Self { ctrl_pins, dq_pins }
+    }
+}
+
+pub struct HyperRam<'a, 'd, P: Instance, const S: usize> {
+    pio: &'a mut Common<'d, P>,
+    sm: &'a mut StateMachine<'d, P, S>,
+    pos_r_lat: u8,
+    pos_w_lat: u8,
+    pos_finish: u8,
+    used_memory: Option<InstanceMemory<'d, P>>,
+}
+
+impl<'a, 'd, P: Instance, const S: usize> HyperRam<'a, 'd, P, S> {
+    pub fn new(
+        pio: &'a mut Common<'d, P>,
+        sm: &'a mut StateMachine<'d, P, S>,
+        pins: &HyperRamPins<'d, P>,
+    ) -> Self {
+        let program = pio_proc::pio_file!("./pio/hyperram.pio");
+
         let mut cfg = Config::default();
 
-        cfg.set_set_pins(&ctrl_pins.each_ref());
-        cfg.set_in_pins(&dq_pins.each_ref());
-        cfg.set_out_pins(&dq_pins.each_ref());
-        cfg.set_jmp_pin(&ctrl_pins[0]);
+        cfg.set_set_pins(&pins.ctrl_pins.each_ref());
+        cfg.set_in_pins(&pins.dq_pins.each_ref());
+        cfg.set_out_pins(&pins.dq_pins.each_ref());
+        cfg.set_jmp_pin(&pins.ctrl_pins[0]);
 
         cfg.shift_out = ShiftConfig {
             auto_fill: true,
@@ -96,10 +114,11 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
 
         let lprogram = pio.load_program(&program.program);
 
-        cfg.use_program(&lprogram, &[&ctrl_pins[1]]);
         let pos_r_lat = lprogram.origin + program.public_defines.r_lat as u8;
         let pos_w_lat = lprogram.origin + program.public_defines.w_lat as u8;
         let pos_finish = lprogram.origin + program.public_defines.finish as u8;
+
+        cfg.use_program(&lprogram, &[&pins.ctrl_pins[1]]);
 
         sm.set_config(&cfg);
 
@@ -107,9 +126,11 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
 
         Self {
             sm,
+            pio,
             pos_r_lat,
             pos_w_lat,
             pos_finish,
+            used_memory: Some(lprogram.used_memory),
         }
     }
 
@@ -254,5 +275,28 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
             (0x0u16 << 3); // Variable latency mode
 
         self.write_cfg_blocking(CFG0, cfgreg_init);
+    }
+}
+
+impl<'a, 'd, P: Instance, const S: usize> Drop for HyperRam<'a, 'd, P, S> {
+    fn drop(&mut self) {
+        self.sm.set_enable(false);
+        unsafe {
+            self.pio.free_instr(self.used_memory.take().unwrap());
+        }
+    }
+}
+
+pub struct HyperRamReadOnly<'d, P: Instance, const S: usize> {
+    sm: StateMachine<'d, P, S>,
+}
+
+impl<'d, P: Instance, const S: usize> HyperRamReadOnly<'d, P, S> {
+    pub fn new(
+        pio: &mut Common<'d, P>,
+        mut sm: StateMachine<'d, P, S>,
+        pins: HyperRamPins<'d, P>,
+    ) -> Self {
+        Self { sm }
     }
 }
