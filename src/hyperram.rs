@@ -21,6 +21,7 @@ enum CmdFlags {
 pub struct HyperRam<'d, P: Instance, const S: usize> {
     sm: StateMachine<'d, P, S>,
     pos_r_lat: u8,
+    pos_w_lat: u8,
     pos_finish: u8,
 }
 
@@ -97,6 +98,7 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
 
         cfg.use_program(&lprogram, &[&ctrl_pins[1]]);
         let pos_r_lat = lprogram.origin + program.public_defines.r_lat as u8;
+        let pos_w_lat = lprogram.origin + program.public_defines.w_lat as u8;
         let pos_finish = lprogram.origin + program.public_defines.finish as u8;
 
         sm.set_config(&cfg);
@@ -106,6 +108,7 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
         Self {
             sm,
             pos_r_lat,
+            pos_w_lat,
             pos_finish,
         }
     }
@@ -133,6 +136,17 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
                     | (((cmd1_be >> 0) & 0xff) << 24);
                 let next_pc = self.pos_r_lat as u32;
                 cmd[2] = next_pc << 24 | 0x00 << 16 | len as u32;
+            }
+            CmdFlags::Write => {
+                cmd[0] =
+                    ((addr_h >> 16) & 0xff) << 24 | ((addr_h >> 24) & 0xff) << 16 | 0xff << 8 | 2;
+                let cmd1_be = (addr_h << 16) | addr_l;
+                cmd[1] = ((cmd1_be >> 24) & 0xff)
+                    | (((cmd1_be >> 16) & 0xff) << 8)
+                    | (((cmd1_be >> 8) & 0xff) << 16)
+                    | (((cmd1_be >> 0) & 0xff) << 24);
+                let next_pc = self.pos_w_lat as u32;
+                cmd[2] = next_pc << 24 | 0xff << 16 | len as u32;
             }
             _ => {}
         }
@@ -190,6 +204,38 @@ impl<'d, P: Instance, const S: usize> HyperRam<'d, P, S> {
 
         for cmd in cmds {
             block_on(self.sm.tx().wait_push(cmd));
+        }
+    }
+
+    pub fn read_blocking(&mut self, addr: u32, data: &mut [u8]) {
+        assert!(data.len() % 4 == 0, "hyperam interface is u32 aligned");
+
+        let len = data.len() >> 2;
+        let cmds = self.create_cmd(CmdFlags::Read, addr, len);
+
+        for cmd in cmds {
+            block_on(self.sm.tx().wait_push(cmd));
+        }
+
+        for i in 0..len {
+            let data_be = block_on(self.sm.rx().wait_pull());
+            data[i * 4..i * 4 + 4].copy_from_slice(&data_be.to_le_bytes());
+        }
+    }
+
+    pub fn write_blocking(&mut self, addr: u32, data: &[u8]) {
+        assert!(data.len() % 4 == 0, "hyperam interface is u32 aligned");
+
+        let len = data.len() >> 2;
+        let cmds = self.create_cmd(CmdFlags::Write, addr, len);
+
+        for cmd in cmds {
+            block_on(self.sm.tx().wait_push(cmd));
+        }
+
+        for i in 0..len {
+            let data_be = u32::from_le_bytes(data[i * 4..i * 4 + 4].try_into().unwrap());
+            block_on(self.sm.tx().wait_push(data_be));
         }
     }
 

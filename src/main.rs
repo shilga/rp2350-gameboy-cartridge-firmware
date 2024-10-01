@@ -24,7 +24,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Config, UsbDevice};
 
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
 
 use embedded_io::{ErrorType, Write};
 
@@ -327,6 +327,13 @@ async fn main(spawner: Spawner) {
         "ID0 {:#x}, ID1 {:#x}, CFG0 {:#x}, CFG1 {:#x}",
         id0, id1, cfg0, cfg1
     );
+
+    let write_start_time = Instant::now();
+    hyperram.write_blocking(0, &gb_rom);
+    let write_duration = write_start_time.elapsed();
+    info!("Writing took {}", write_duration);
+    let mut test_read: [u8; 16] = [0; 16];
+    hyperram.read_blocking(0x100u32, &mut test_read);
 
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
