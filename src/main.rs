@@ -9,7 +9,6 @@
 
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::pac;
 use embassy_rp::peripherals::USB;
 use embassy_rp::peripherals::{PIO0, PIO1, PIO2, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
@@ -17,6 +16,7 @@ use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_rp::{bind_interrupts, spi};
 use embassy_rp::{block::ImageDef, uart::UartTx};
+use embassy_rp::{clocks, config as rpconfig, pac};
 use embedded_hal_bus::spi::ExclusiveDevice;
 
 use embassy_embedded_hal::SetConfig;
@@ -126,7 +126,17 @@ extern "C" {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     embassy_rp::pac::SIO.spinlock(31).write_value(1);
-    let mut p = embassy_rp::init(Default::default());
+    let mut rp_config = rpconfig::Config::default();
+    rp_config
+        .clocks
+        .xosc
+        .as_mut()
+        .unwrap()
+        .sys_pll
+        .as_mut()
+        .unwrap()
+        .post_div1 = 5;
+    let p = embassy_rp::init(rp_config);
     let config = uart::Config::default();
     let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
 
@@ -134,7 +144,8 @@ async fn main(spawner: Spawner) {
 
     defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
 
-    info!("Hello defmt-world!");
+    let sys_freq = clocks::clk_sys_freq();
+    info!("Hello defmt-world!, running at {} hz", sys_freq);
 
     let mut reset_pin = Output::new(p.PIN_45, Level::High);
     let mut _gb_bus_en = Output::new(p.PIN_44, Level::High);
@@ -254,7 +265,7 @@ async fn main(spawner: Spawner) {
         common.make_pio_pin(p.PIN_43),
     ];
 
-    for mut pin in gb_pio_pins {
+    for pin in gb_pio_pins {
         // pin.set_pull(gpio::Pull::None);
         pac::PADS_BANK0.gpio(pin.pin() as usize).modify(|w| {
             w.set_ie(true);
@@ -303,7 +314,7 @@ async fn main(spawner: Spawner) {
         ..
     } = Pio::new(p.PIO2, Irqs);
 
-    let mut hyperrampins = HyperRamPins::new(
+    let hyperrampins = HyperRamPins::new(
         &mut common,
         p.PIN_6,
         p.PIN_7,
