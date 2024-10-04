@@ -349,7 +349,18 @@ async fn main(spawner: Spawner) {
         info!("Writing took {}", write_duration);
         let mut test_read: [u8; 16] = [0; 16];
         hyperram.read_blocking(0x100u32, &mut test_read);
+        info!("test_read: {}", test_read);
     }
+
+    let mut hyperram = HyperRamReadOnly::new(&mut common, sm0, hyperrampins);
+    let dat = hyperram.read_blocking(0x100u32);
+    let dat2 = hyperram.read_blocking(0x105u32);
+    let dat3 = hyperram.read_blocking(0x1208u32);
+    let dat4 = hyperram.read_blocking(0x1209u32);
+    info!(
+        "dat {:#x} dat2 {:#x} dat3 {:#x} dat4 {:#x}",
+        dat, dat2, dat3, dat4
+    );
 
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
@@ -412,8 +423,6 @@ async fn main(spawner: Spawner) {
         num_read,
         read_duration.as_millis()
     );
-
-    let mut hyperram = HyperRamReadOnly::new(&mut common, sm0, hyperrampins);
 
     reset_pin.set_low();
 

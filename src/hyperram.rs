@@ -3,7 +3,7 @@ use embassy_rp::{
     gpio::{Drive, SlewRate},
     pac,
     pio::{
-        Common, Config, Instance, InstanceMemory, LoadedProgram, Pin, PioPin, ShiftConfig,
+        Common, Config, Instance, InstanceMemory, Pin, PioPin, ShiftConfig,
         ShiftDirection, StateMachine,
     },
 };
@@ -207,11 +207,13 @@ impl<'a, 'd, P: Instance, const S: usize> HyperRam<'a, 'd, P, S> {
     }
 
     pub fn read_cfg_blocking(&mut self, addr: u32) -> u16 {
-        let cmd = self.create_cmd(CmdFlags::RegRead, addr, 1);
+        let cmds = self.create_cmd(CmdFlags::RegRead, addr, 1);
 
-        block_on(self.sm.tx().wait_push(cmd[0]));
-        block_on(self.sm.tx().wait_push(cmd[1]));
-        block_on(self.sm.tx().wait_push(cmd[2]));
+        while !self.sm.tx().empty() {}
+
+        for cmd in cmds {
+            self.sm.tx().push(cmd);
+        }
 
         let data_be = block_on(self.sm.rx().wait_pull());
         // Byte swap register data - they are big endian
@@ -223,8 +225,10 @@ impl<'a, 'd, P: Instance, const S: usize> HyperRam<'a, 'd, P, S> {
     pub fn write_cfg_blocking(&mut self, addr: u32, reg_data: u16) {
         let cmds = self.create_cmd_reg_write(addr, reg_data);
 
+        while !self.sm.tx().empty() {}
+
         for cmd in cmds {
-            block_on(self.sm.tx().wait_push(cmd));
+            self.sm.tx().push(cmd);
         }
     }
 
@@ -234,8 +238,10 @@ impl<'a, 'd, P: Instance, const S: usize> HyperRam<'a, 'd, P, S> {
         let len = data.len() >> 2;
         let cmds = self.create_cmd(CmdFlags::Read, addr, len);
 
+        while !self.sm.tx().empty() {}
+
         for cmd in cmds {
-            block_on(self.sm.tx().wait_push(cmd));
+            self.sm.tx().push(cmd);
         }
 
         for i in 0..len {
@@ -250,8 +256,10 @@ impl<'a, 'd, P: Instance, const S: usize> HyperRam<'a, 'd, P, S> {
         let len = data.len() >> 2;
         let cmds = self.create_cmd(CmdFlags::Write, addr, len);
 
+        while !self.sm.tx().empty() {}
+
         for cmd in cmds {
-            block_on(self.sm.tx().wait_push(cmd));
+            self.sm.tx().push(cmd);
         }
 
         for i in 0..len {
@@ -271,8 +279,8 @@ impl<'a, 'd, P: Instance, const S: usize> HyperRam<'a, 'd, P, S> {
             //(0x0u << 4)  | // 5 latency cycles (in bias -5 format)
             //(0x1u << 4)  | // 6 latency cycles (in bias -5 format)
             //(0x2u << 4)  | // Default 7 latency cycles (in bias -5 format)
-            //(0x1u << 3);   // Fixed 2x latency mode
-            (0x0u16 << 3); // Variable latency mode
+            (0x1u16 << 3); // Fixed 2x latency mode
+                           // (0x0u16 << 3); // Variable latency mode
 
         self.write_cfg_blocking(CFG0, cfgreg_init);
     }
@@ -297,6 +305,40 @@ impl<'d, P: Instance, const S: usize> HyperRamReadOnly<'d, P, S> {
         mut sm: StateMachine<'d, P, S>,
         pins: HyperRamPins<'d, P>,
     ) -> Self {
+        let program = pio_proc::pio_file!("./pio/hyperram_ro.pio");
+
+        let mut cfg = Config::default();
+
+        cfg.set_set_pins(&pins.ctrl_pins.each_ref());
+        cfg.set_in_pins(&pins.dq_pins.each_ref());
+        cfg.set_out_pins(&pins.dq_pins.each_ref());
+        cfg.set_jmp_pin(&pins.ctrl_pins[0]);
+
+        cfg.shift_out = ShiftConfig {
+            auto_fill: false,
+            threshold: 32,
+            direction: ShiftDirection::Left,
+        };
+        cfg.shift_in = ShiftConfig {
+            auto_fill: true,
+            threshold: 8,
+            direction: ShiftDirection::Left,
+        };
+
+        let lprogram = pio.load_program(&program.program);
+
+        cfg.use_program(&lprogram, &[&pins.ctrl_pins[1]]);
+
+        sm.set_config(&cfg);
+
+        sm.set_enable(true);
+
         Self { sm }
+    }
+
+    pub fn read_blocking(&mut self, addr: u32) -> u8 {
+        self.sm.tx().push(addr);
+
+        block_on(self.sm.rx().wait_pull()) as u8
     }
 }

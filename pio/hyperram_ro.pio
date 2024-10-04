@@ -1,0 +1,56 @@
+.program hyperram_ro
+
+; HyperRAM interface optimized to read only one byte as fast as possible. 
+; Pin mapping:
+; - in/out pins are mapped to DQx
+; - sideset pin is mapped to {CK}
+; - set pins are mapped to RWDS (lsb), CSn (msb), CLK (between)
+; - jmp pin mapped to RWDS
+
+; Make side sets optional for ease of writing the pio code
+.side_set 1 opt
+
+; Settings: sysclock 150 MHz, clkdiv = 1, initial lat = 3;
+.define LATENCY 5
+
+public start:
+    set y, LATENCY       side 0b0       ; Assume maximum latency 
+    mov pins, null ; set all pins to 0
+    set x, 1 ; set LSB in X
+    mov osr, x ; LSB is now set in osr
+    out pins, 31 ;shift until LSB is at MSB -> OSR is now 0x80000000
+    out pins, 8 ; Shift out first byte of CA. This has CA Bit 47 set, which indicates a read instruction
+    mov  osr ~null                    ; OSR=FFFFFFFF
+    out pindirs, 8                   ; Set CMD/Data pins direction, this prepares the pins to always output CA47..40 while we are waiting for the actual command
+    pull block                        ; Wait for the read command and receive the addr
+    set pins, 0b000       side 0b0       ; Enable chip select
+    set pindirs, 0b110    side 0b0 [1]   ; Make RWDS pin input, CS and CLK output
+
+adr:
+    nop                  side 0b1
+    out pins, 12                      ; Shift 12 bits here, this moves the 32bit addr into the right position. I would be 13 bits, but the RAM addresses in words (16 bit)
+    nop                  side 0b0
+    out pins, 8  
+    nop                  side 0b1
+    out pins, 8 
+    nop                  side 0b0
+    mov pins, null                      ; reserved part, is always 0
+    nop                  side 0b1
+    out pins, 3                      ; shift the last 3 bits of the addr out, the other bits are reserved and always 0
+    out x, 1             side 0b0       ; shift the last bit of the OSR into x, this indicates if the addr is odd or even
+
+lat_cnt:
+    ; this is the fastest part, we change the clk pin as fast as possible which is sysclk/2 = 75 MHz
+    out pindirs, 8  side 0b0        ; set pins back to input
+    jmp y--, lat_cnt     side 0b1 
+
+    jmp !x r_data      ; jmp to directly read the data if addr was even
+
+    nop                  side 0b0 [1]   ; add an additional clk transition if addr was odd
+
+r_data:
+    nop [2]
+    in pins, 8            
+
+    set pins, 0b100       side 0b0        ; Deselect part, idle clock
+
