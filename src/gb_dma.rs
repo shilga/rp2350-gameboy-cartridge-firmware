@@ -4,6 +4,9 @@ use embassy_rp::{into_ref, Peripheral, PeripheralRef};
 
 use defmt::info;
 
+use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
+use crate::hyperram::{self, HyperRamReadOnly};
+
 const REG_ALIAS_SET_BITS: u32 = 0x2u32 << 12u32;
 
 pub struct GbReadDmaConfig<'d> {
@@ -91,6 +94,44 @@ impl<'d> GbReadDmaConfig<'d> {
             _dma_ch0: dma_ch0,
             _dma_ch1: dma_ch1,
             _dma_ch2: dma_ch2,
+        }
+    }
+}
+
+pub struct GbReadSniffDmaConfig<'d> {
+    _dma_ch0: PeripheralRef<'d, AnyChannel>,
+    _dma_ch1: PeripheralRef<'d, AnyChannel>,
+    _dma_ch2: PeripheralRef<'d, AnyChannel>,
+    _dma_ch3: PeripheralRef<'d, AnyChannel>,
+}
+
+impl<'d> GbReadSniffDmaConfig<'d> {
+    pub fn new(
+        dma0: impl Peripheral<P = impl Channel> + 'd,
+        dma1: impl Peripheral<P = impl Channel> + 'd,
+        dma2: impl Peripheral<P = impl Channel> + 'd,
+        dma3: impl Peripheral<P = impl Channel> + 'd,
+        addr_read_target: &dyn DmaReadTarget<ReceivedWord = u32>,
+        hyperram_write_target: &dyn DmaWriteTarget<TransmittedWord = u32>,
+        hyperram_read_target: &dyn DmaReadTarget<ReceivedWord = u8>,
+        write_target: &dyn DmaWriteTarget<TransmittedWord = u8>,
+        base_addr_ptr: *const u32,
+    ) -> Self {
+        into_ref!(dma0);
+        into_ref!(dma1);
+        into_ref!(dma2);
+        into_ref!(dma3);
+
+        let dma_ch0: PeripheralRef<'d, AnyChannel> = dma0.map_into();
+        let dma_ch1: PeripheralRef<'d, AnyChannel> = dma1.map_into();
+        let dma_ch2: PeripheralRef<'d, AnyChannel> = dma2.map_into();
+        let dma_ch3: PeripheralRef<'d, AnyChannel> = dma3.map_into();
+
+        Self {
+            _dma_ch0: dma_ch0,
+            _dma_ch1: dma_ch1,
+            _dma_ch2: dma_ch2,
+            _dma_ch3: dma_ch3,
         }
     }
 }

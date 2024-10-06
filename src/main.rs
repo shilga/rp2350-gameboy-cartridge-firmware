@@ -30,6 +30,7 @@ use embedded_io::{ErrorType, Write};
 
 use embedded_sdmmc::sdcard::SdCard;
 
+use gb_dma::GbReadSniffDmaConfig;
 use hyperram::HyperRamPins;
 use smart_leds::RGB8;
 
@@ -48,13 +49,15 @@ mod picotool_reset;
 use crate::picotool_reset::PicotoolReset;
 
 mod gb_pio;
-use crate::gb_pio::{GbDataOut, GbRomDetect, GbRomLower};
+use crate::gb_pio::{GbDataOut, GbRomDetect, GbRomHigher, GbRomLower};
 
 mod gb_dma;
 use crate::gb_dma::GbReadDmaConfig;
 
 mod hyperram;
 use crate::hyperram::{HyperRam, HyperRamReadOnly};
+
+mod dma_helper;
 
 #[link_section = ".start_block"]
 #[used]
@@ -229,6 +232,7 @@ async fn main(spawner: Spawner) {
     } = Pio::new(p.PIO1, Irqs);
     let mut gb_rom_detect_pio = GbRomDetect::new(&mut common, &pac::PIO1, sm2);
     let mut gb_rom_lower_pio = GbRomLower::new(&mut common, &pac::PIO1, sm0);
+    let mut gb_rom_higher_pio = GbRomHigher::new(&mut common, &pac::PIO1, sm1);
     let mut gb_data_out_pio = GbDataOut::new(&mut common, &pac::PIO1, sm3);
 
     info!("gpiobase: {}", pac::PIO1.gpiobase().read().gpiobase());
@@ -352,7 +356,7 @@ async fn main(spawner: Spawner) {
         info!("test_read: {}", test_read);
     }
 
-    let mut hyperram = HyperRamReadOnly::new(&mut common, sm0, hyperrampins);
+    let mut hyperram = HyperRamReadOnly::new(&mut common, &pac::PIO2, sm0, hyperrampins);
     let dat = hyperram.read_blocking(0x100u32);
     let dat2 = hyperram.read_blocking(0x105u32);
     let dat3 = hyperram.read_blocking(0x1208u32);
@@ -360,6 +364,20 @@ async fn main(spawner: Spawner) {
     info!(
         "dat {:#x} dat2 {:#x} dat3 {:#x} dat4 {:#x}",
         dat, dat2, dat3, dat4
+    );
+
+    let current_higher_base_addr = 1u32;
+
+    let hyperram_gb_dma = GbReadSniffDmaConfig::new(
+        p.DMA_CH3,
+        p.DMA_CH4,
+        p.DMA_CH5,
+        p.DMA_CH6,
+        &gb_rom_higher_pio,
+        &hyperram,
+        &hyperram,
+        &gb_data_out_pio,
+        &current_higher_base_addr,
     );
 
     // SPI clock needs to be running at <= 400kHz during initialization

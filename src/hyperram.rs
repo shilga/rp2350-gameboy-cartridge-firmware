@@ -1,10 +1,11 @@
+use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
 use embassy_futures::block_on;
 use embassy_rp::{
     gpio::{Drive, SlewRate},
     pac,
     pio::{
-        Common, Config, Instance, InstanceMemory, Pin, PioPin, ShiftConfig,
-        ShiftDirection, StateMachine,
+        Common, Config, Instance, InstanceMemory, Pin, PioPin, ShiftConfig, ShiftDirection,
+        StateMachine,
     },
 };
 
@@ -296,12 +297,14 @@ impl<'a, 'd, P: Instance, const S: usize> Drop for HyperRam<'a, 'd, P, S> {
 }
 
 pub struct HyperRamReadOnly<'d, P: Instance, const S: usize> {
+    p: &'static pac::pio::Pio,
     sm: StateMachine<'d, P, S>,
 }
 
 impl<'d, P: Instance, const S: usize> HyperRamReadOnly<'d, P, S> {
     pub fn new(
         pio: &mut Common<'d, P>,
+        p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
         pins: HyperRamPins<'d, P>,
     ) -> Self {
@@ -333,12 +336,54 @@ impl<'d, P: Instance, const S: usize> HyperRamReadOnly<'d, P, S> {
 
         sm.set_enable(true);
 
-        Self { sm }
+        Self { p, sm }
     }
 
     pub fn read_blocking(&mut self, addr: u32) -> u8 {
         self.sm.tx().push(addr);
 
         block_on(self.sm.rx().wait_pull()) as u8
+    }
+}
+
+unsafe impl<'d, P: Instance, const S: usize> DmaReadTarget for HyperRamReadOnly<'d, P, S> {
+    type ReceivedWord = u8;
+
+    fn rx_treq(&self) -> Option<u8> {
+        let pio_num: u8 = ((self.p.as_ptr() as u32 - pac::PIO0.as_ptr() as u32) / 0x10_0000u32)
+            .try_into()
+            .unwrap();
+
+        Some(pio_num * 8 + 4 + S as u8)
+    }
+
+    fn rx_address_count(&self) -> (u32, u32) {
+        let ptr = self.p.rxf(S).as_ptr();
+        (ptr as u32, 1u32)
+    }
+
+    fn rx_increment(&self) -> bool {
+        false
+    }
+}
+
+unsafe impl<'d, P: Instance, const S: usize> DmaWriteTarget for HyperRamReadOnly<'d, P, S> {
+    type TransmittedWord = u32;
+
+    fn tx_treq(&self) -> Option<u8> {
+        let pio_num: u8 = ((self.p.as_ptr() as u32 - pac::PIO0.as_ptr() as u32) / 0x10_0000u32)
+            .try_into()
+            .unwrap();
+
+        Some(pio_num * 8 + S as u8)
+    }
+
+    fn tx_address_count(&self) -> (u32, u32) {
+        let ptr = self.p.txf(S).as_ptr();
+        (ptr as u32, 1u32)
+    }
+
+    fn tx_increment(&self) -> bool {
+        false
     }
 }

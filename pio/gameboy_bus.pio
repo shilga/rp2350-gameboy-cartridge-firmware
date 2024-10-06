@@ -62,7 +62,6 @@ idle:
     jmp pin idle ; on reads back to idle
 
     in   pins 14          ; shift A0 to A13 pins into ISR and auto push
-    in null 8
     .wrap
 
 
