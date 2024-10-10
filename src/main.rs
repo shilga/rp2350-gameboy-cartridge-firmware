@@ -383,7 +383,7 @@ async fn main(spawner: Spawner) {
         );
 
         let write_start_time = Instant::now();
-        hyperram.write_blocking(0, &gb_rom);
+        hyperram.write_blocking(0x4000, &gb_rom[0x4000..]);
         let write_duration = write_start_time.elapsed();
         info!("Writing took {}", write_duration);
         let mut test_read: [u8; 16] = [0; 16];

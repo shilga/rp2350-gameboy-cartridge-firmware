@@ -169,6 +169,7 @@ impl<'d> GbReadSniffDmaConfig<'d> {
         dma1_cfg.set_treq_sel(pac::dma::vals::TreqSel::PERMANENT);
         dma1_cfg.set_chain_to(dma_ch2.number());
         dma1_cfg.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
+        dma1_cfg.set_sniff_en(true); // allow sniffing of this channel
         dma1_cfg.set_en(true);
         p1.al1_ctrl().write_value(dma1_cfg.0);
 
