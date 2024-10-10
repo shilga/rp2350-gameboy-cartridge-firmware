@@ -7,7 +7,6 @@ use embassy_rp::{into_ref, Peripheral, PeripheralRef};
 use defmt::info;
 
 use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
-use crate::hyperram::{self, HyperRamReadOnly};
 
 const REG_ALIAS_SET_BITS: u32 = 0x2u32 << 12u32;
 static mut DEV_NULL: u32 = 0;
@@ -24,21 +23,23 @@ impl<'d> GbReadDmaConfig<'d> {
         dma1: impl Peripheral<P = impl Channel> + 'd,
         dma2: impl Peripheral<P = impl Channel> + 'd,
         read_base_addr_ptr: *mut *mut u8,
-        read_addr_rx_fifo: *mut u32,
-        write_to_data_tx_fifo: *mut u32,
-        dreq: pac::dma::vals::TreqSel,
+        addr_read_target: &dyn DmaReadTarget<ReceivedWord = u32>,
+        write_target: &dyn DmaWriteTarget<TransmittedWord = u8>,
     ) -> Self {
         into_ref!(dma0);
         into_ref!(dma1);
         into_ref!(dma2);
 
         info!("read_base_addr_ptr: {:#010x}", read_base_addr_ptr as u32);
-        info!("read_addr_rx_fifo: {:#010x}", read_addr_rx_fifo as u32);
+        info!(
+            "read_addr_rx_fifo: {:#010x}",
+            addr_read_target.rx_address_count().0
+        );
         info!(
             "write_to_data_tx_fifo: {:#010x}",
-            write_to_data_tx_fifo as u32
+            write_target.tx_address_count().0
         );
-        info!("dreq: {:x}", dreq as u32);
+        info!("dreq: {:x}", addr_read_target.rx_treq().unwrap() as u32);
 
         let dma_ch0: PeripheralRef<'d, AnyChannel> = dma0.map_into();
         let dma_ch1: PeripheralRef<'d, AnyChannel> = dma1.map_into();
@@ -52,7 +53,8 @@ impl<'d> GbReadDmaConfig<'d> {
         p1.trans_count().write(|w| {
             w.set_count(1);
         });
-        p1.write_addr().write_value(write_to_data_tx_fifo as u32);
+        p1.write_addr()
+            .write_value(write_target.tx_address_count().0);
         let mut dma1_cfg = pac::dma::regs::CtrlTrig(0);
         dma1_cfg.set_incr_read(false);
         dma1_cfg.set_incr_write(false);
@@ -66,12 +68,17 @@ impl<'d> GbReadDmaConfig<'d> {
         p0.trans_count().write(|w| {
             w.set_count(1);
         });
-        p0.read_addr().write_value(read_addr_rx_fifo as u32);
+        p0.read_addr()
+            .write_value(addr_read_target.rx_address_count().0);
         p0.write_addr().write_value(p1.read_addr().as_ptr() as u32);
         p0.ctrl_trig().write(|w| {
             w.set_incr_read(false);
             w.set_incr_write(false);
-            w.set_treq_sel(dreq);
+            w.set_treq_sel(pac::dma::vals::TreqSel::from(
+                addr_read_target
+                    .rx_treq()
+                    .unwrap_or(pac::dma::vals::TreqSel::PERMANENT as u8),
+            ));
             w.set_chain_to(dma_ch2.number());
             w.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
             w.set_en(true);

@@ -271,9 +271,8 @@ async fn main(spawner: Spawner) {
         p.DMA_CH1,
         p.DMA_CH2,
         ptr::addr_of_mut!(testvarptr),
-        gb_rom_lower_pio.get_rx_reg(),
-        gb_data_out_pio.get_tx_reg(),
-        gb_rom_lower_pio.get_rx_dreq(),
+        &gb_rom_lower_pio,
+        &gb_data_out_pio,
     );
 
     // Spawned tasks run in the background, concurrently.

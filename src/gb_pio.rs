@@ -5,13 +5,12 @@ use embassy_rp::{
         Common, Config, Direction, ExecConfig, Instance, Pin, PinConfig, PioPin, ShiftConfig,
         ShiftDirection, StateMachine,
     },
-    Peripherals,
 };
 
 pub struct GbPioPins<'d, P: Instance> {
-    pub addr_pins: [Pin<'d, P>; 16],
-    pub data_pins: [Pin<'d, P>; 8],
-    pub ctrl_pins: [Pin<'d, P>; 3],
+    pub _addr_pins: [Pin<'d, P>; 16],
+    pub _data_pins: [Pin<'d, P>; 8],
+    pub _ctrl_pins: [Pin<'d, P>; 3],
     pub debug_pin: Option<Pin<'d, P>>,
 }
 impl<'d, P: Instance> GbPioPins<'d, P> {
@@ -109,9 +108,9 @@ impl<'d, P: Instance> GbPioPins<'d, P> {
         };
 
         Self {
-            ctrl_pins,
-            addr_pins,
-            data_pins,
+            _ctrl_pins: ctrl_pins,
+            _addr_pins: addr_pins,
+            _data_pins: data_pins,
             debug_pin,
         }
     }
@@ -162,10 +161,6 @@ impl<'d, P: Instance, const S: usize> GbDataOut<'d, P, S> {
     pub fn start(&mut self) {
         self.sm.set_enable(true);
     }
-
-    pub fn get_tx_reg(&self) -> *mut u32 {
-        self.p.txf(S).as_ptr()
-    }
 }
 
 unsafe impl<'d, P: Instance, const S: usize> DmaWriteTarget for GbDataOut<'d, P, S> {
@@ -191,13 +186,12 @@ unsafe impl<'d, P: Instance, const S: usize> DmaWriteTarget for GbDataOut<'d, P,
 
 pub struct GbRomDetect<'d, P: Instance, const S: usize> {
     sm: StateMachine<'d, P, S>,
-    p: &'static pac::pio::Pio,
 }
 
 impl<'d, P: Instance, const S: usize> GbRomDetect<'d, P, S> {
     pub fn new(
         pio: &mut Common<'d, P>,
-        p: &'static pac::pio::Pio,
+        _p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
     ) -> Self {
         let program = pio_proc::pio_file!(
@@ -229,7 +223,7 @@ impl<'d, P: Instance, const S: usize> GbRomDetect<'d, P, S> {
 
         sm.set_config(&cfg);
 
-        Self { sm, p }
+        Self { sm }
     }
 
     pub fn start(&mut self) {
@@ -284,16 +278,26 @@ impl<'d, P: Instance, const S: usize> GbRomLower<'d, P, S> {
     pub fn start(&mut self) {
         self.sm.set_enable(true);
     }
+}
 
-    pub fn get_rx_reg(&self) -> *mut u32 {
-        self.p.rxf(S).as_ptr()
-    }
+unsafe impl<'d, P: Instance, const S: usize> DmaReadTarget for GbRomLower<'d, P, S> {
+    type ReceivedWord = u32;
 
-    pub fn get_rx_dreq(&self) -> pac::dma::vals::TreqSel {
+    fn rx_treq(&self) -> Option<u8> {
         let pio_num: u8 = ((self.p.as_ptr() as u32 - pac::PIO0.as_ptr() as u32) / 0x10_0000u32)
             .try_into()
             .unwrap();
-        pac::dma::vals::TreqSel::from(pio_num * 8 + 4 + S as u8)
+
+        Some(pio_num * 8 + 4 + S as u8)
+    }
+
+    fn rx_address_count(&self) -> (u32, u32) {
+        let ptr = self.p.rxf(S).as_ptr();
+        (ptr as u32, 1u32)
+    }
+
+    fn rx_increment(&self) -> bool {
+        false
     }
 }
 
