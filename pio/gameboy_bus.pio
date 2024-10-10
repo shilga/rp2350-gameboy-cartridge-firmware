@@ -13,9 +13,10 @@
 .define PIN_A15_INT 19
 
 .program gameboy_bus_write_to_data
+.side_set 1 opt
 .wrap_target
     pull block                                 ; pull the data from the Tx FIFO into the OSR
-    out  pins 8                               ; output 8 bits of data
+    out  pins 8  side 0                             ; output 8 bits of data
     mov  osr ~null                             ; OSR=FFFFFFFF
     out  pindirs 8                             ; start driving the data bus
     wait 0 pin 0                        ; wait for clk
@@ -46,22 +47,24 @@ hdma_read:
 
 
 .program gameboy_bus_rom_low
+.side_set 1 opt
 idle:
 .wrap_target
     wait 1 irq 0 rel ; will wait on irq 0 on SM0 (low) and irq 1 on SM1 (high)
     jmp pin idle ; on reads back to idle
 
-    in   pins 14         ; shift A0 to A13 pins into ISR and auto push
+    in   pins 14  side 1       ; shift A0 to A13 pins into ISR and auto push
     .wrap
 
 
 .program gameboy_bus_rom_high
+.side_set 1 opt
 idle:
 .wrap_target
     wait 1 irq 0 rel ; will wait on irq 0 on SM0 (low) and irq 1 on SM1 (high)
     jmp pin idle ; on reads back to idle
 
-    in   pins 14          ; shift A0 to A13 pins into ISR and auto push
+    in   pins 14  side 1        ; shift A0 to A13 pins into ISR and auto push
     .wrap
 
 

@@ -31,6 +31,7 @@ use embedded_io::{ErrorType, Write};
 use embedded_sdmmc::sdcard::SdCard;
 
 use gb_dma::GbReadSniffDmaConfig;
+use gb_pio::GbPioPins;
 use hyperram::HyperRamPins;
 use smart_leds::RGB8;
 
@@ -140,12 +141,12 @@ async fn main(spawner: Spawner) {
         .unwrap()
         .post_div1 = 5;
     let p = embassy_rp::init(rp_config);
-    let config = uart::Config::default();
-    let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
+    // let config = uart::Config::default();
+    // let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
 
-    let serialwrapper = SerialWrapper { uart };
+    // let serialwrapper = SerialWrapper { uart };
 
-    defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
+    // defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
 
     let sys_freq = clocks::clk_sys_freq();
     info!("Hello defmt-world!, running at {} hz", sys_freq);
@@ -230,54 +231,25 @@ async fn main(spawner: Spawner) {
         sm3,
         ..
     } = Pio::new(p.PIO1, Irqs);
+
+    #[rustfmt::skip]
+    let gb_pio_pins = GbPioPins::new(
+        &mut common,
+        p.PIN_17, p.PIN_18, p.PIN_19,
+        p.PIN_20, p.PIN_21, p.PIN_22, p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_26, p.PIN_27,
+        p.PIN_28, p.PIN_29, p.PIN_30, p.PIN_31, p.PIN_32, p.PIN_33, p.PIN_34, p.PIN_35,
+        p.PIN_36, p.PIN_37, p.PIN_38, p.PIN_39, p.PIN_40, p.PIN_41, p.PIN_42, p.PIN_43,
+        Some(p.PIN_46)
+    );
     let mut gb_rom_detect_pio = GbRomDetect::new(&mut common, &pac::PIO1, sm2);
-    let mut gb_rom_lower_pio = GbRomLower::new(&mut common, &pac::PIO1, sm0);
-    let mut gb_rom_higher_pio = GbRomHigher::new(&mut common, &pac::PIO1, sm1);
-    let mut gb_data_out_pio = GbDataOut::new(&mut common, &pac::PIO1, sm3);
+    let mut gb_rom_lower_pio = GbRomLower::new(&mut common, &pac::PIO1, sm0, &gb_pio_pins);
+    let mut gb_rom_higher_pio = GbRomHigher::new(&mut common, &pac::PIO1, sm1, &gb_pio_pins);
+    let mut gb_data_out_pio = GbDataOut::new(&mut common, &pac::PIO1, sm3, &gb_pio_pins);
 
     info!("gpiobase: {}", pac::PIO1.gpiobase().read().gpiobase());
 
-    let gb_pio_pins = [
-        common.make_pio_pin(p.PIN_17),
-        common.make_pio_pin(p.PIN_18),
-        common.make_pio_pin(p.PIN_19),
-        // addr pins
-        common.make_pio_pin(p.PIN_20),
-        common.make_pio_pin(p.PIN_21),
-        common.make_pio_pin(p.PIN_22),
-        common.make_pio_pin(p.PIN_23),
-        common.make_pio_pin(p.PIN_24),
-        common.make_pio_pin(p.PIN_25),
-        common.make_pio_pin(p.PIN_26),
-        common.make_pio_pin(p.PIN_27),
-        common.make_pio_pin(p.PIN_28),
-        common.make_pio_pin(p.PIN_29),
-        common.make_pio_pin(p.PIN_30),
-        common.make_pio_pin(p.PIN_31),
-        common.make_pio_pin(p.PIN_32),
-        common.make_pio_pin(p.PIN_33),
-        common.make_pio_pin(p.PIN_34),
-        common.make_pio_pin(p.PIN_35),
-        //data pins
-        common.make_pio_pin(p.PIN_36),
-        common.make_pio_pin(p.PIN_37),
-        common.make_pio_pin(p.PIN_38),
-        common.make_pio_pin(p.PIN_39),
-        common.make_pio_pin(p.PIN_40),
-        common.make_pio_pin(p.PIN_41),
-        common.make_pio_pin(p.PIN_42),
-        common.make_pio_pin(p.PIN_43),
-    ];
-
-    for pin in gb_pio_pins {
-        // pin.set_pull(gpio::Pull::None);
-        pac::PADS_BANK0.gpio(pin.pin() as usize).modify(|w| {
-            w.set_ie(true);
-        })
-    }
-
     let gb_rom = unsafe {
-        core::slice::from_raw_parts_mut(ptr::addr_of!(_s_gb_rom_memory) as *mut u8, 0x4000)
+        core::slice::from_raw_parts_mut(ptr::addr_of!(_s_gb_rom_memory) as *mut u8, 0x8000)
     };
 
     unsafe {
@@ -309,76 +281,9 @@ async fn main(spawner: Spawner) {
     spawner.spawn(usb_task(usb)).unwrap();
 
     gb_rom_lower_pio.start();
+    gb_rom_higher_pio.start();
     gb_data_out_pio.start();
     gb_rom_detect_pio.start();
-
-    let Pio {
-        mut common,
-        mut sm0,
-        ..
-    } = Pio::new(p.PIO2, Irqs);
-
-    let hyperrampins = HyperRamPins::new(
-        &mut common,
-        p.PIN_6,
-        p.PIN_7,
-        p.PIN_8,
-        p.PIN_9,
-        p.PIN_10,
-        p.PIN_11,
-        p.PIN_12,
-        p.PIN_13,
-        p.PIN_14,
-        p.PIN_15,
-        p.PIN_16,
-    );
-
-    {
-        let mut hyperram = HyperRam::new(&mut common, &mut sm0, &hyperrampins);
-
-        hyperram.init();
-
-        let id0 = hyperram.read_cfg_blocking(hyperram::ID0);
-        let id1 = hyperram.read_cfg_blocking(hyperram::ID1);
-        let cfg0 = hyperram.read_cfg_blocking(hyperram::CFG0);
-        let cfg1 = hyperram.read_cfg_blocking(hyperram::CFG1);
-        info!(
-            "ID0 {:#x}, ID1 {:#x}, CFG0 {:#x}, CFG1 {:#x}",
-            id0, id1, cfg0, cfg1
-        );
-
-        let write_start_time = Instant::now();
-        hyperram.write_blocking(0, &gb_rom);
-        let write_duration = write_start_time.elapsed();
-        info!("Writing took {}", write_duration);
-        let mut test_read: [u8; 16] = [0; 16];
-        hyperram.read_blocking(0x100u32, &mut test_read);
-        info!("test_read: {}", test_read);
-    }
-
-    let mut hyperram = HyperRamReadOnly::new(&mut common, &pac::PIO2, sm0, hyperrampins);
-    let dat = hyperram.read_blocking(0x100u32);
-    let dat2 = hyperram.read_blocking(0x105u32);
-    let dat3 = hyperram.read_blocking(0x1208u32);
-    let dat4 = hyperram.read_blocking(0x1209u32);
-    info!(
-        "dat {:#x} dat2 {:#x} dat3 {:#x} dat4 {:#x}",
-        dat, dat2, dat3, dat4
-    );
-
-    let current_higher_base_addr = 1u32;
-
-    let hyperram_gb_dma = GbReadSniffDmaConfig::new(
-        p.DMA_CH3,
-        p.DMA_CH4,
-        p.DMA_CH5,
-        p.DMA_CH6,
-        &gb_rom_higher_pio,
-        &hyperram,
-        &hyperram,
-        &gb_data_out_pio,
-        &current_higher_base_addr,
-    );
 
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
@@ -440,6 +345,78 @@ async fn main(spawner: Spawner) {
         "Read {} bytes in {} ms",
         num_read,
         read_duration.as_millis()
+    );
+
+    let Pio {
+        mut common,
+        mut sm0,
+        ..
+    } = Pio::new(p.PIO2, Irqs);
+
+    let hyperrampins = HyperRamPins::new(
+        &mut common,
+        p.PIN_6,
+        p.PIN_7,
+        p.PIN_8,
+        p.PIN_9,
+        p.PIN_10,
+        p.PIN_11,
+        p.PIN_12,
+        p.PIN_13,
+        p.PIN_14,
+        p.PIN_15,
+        p.PIN_16,
+    );
+
+    {
+        let mut hyperram = HyperRam::new(&mut common, &mut sm0, &hyperrampins);
+
+        hyperram.init();
+
+        let id0 = hyperram.read_cfg_blocking(hyperram::ID0);
+        let id1 = hyperram.read_cfg_blocking(hyperram::ID1);
+        let cfg0 = hyperram.read_cfg_blocking(hyperram::CFG0);
+        let cfg1 = hyperram.read_cfg_blocking(hyperram::CFG1);
+        info!(
+            "ID0 {:#x}, ID1 {:#x}, CFG0 {:#x}, CFG1 {:#x}",
+            id0, id1, cfg0, cfg1
+        );
+
+        let write_start_time = Instant::now();
+        hyperram.write_blocking(0, &gb_rom);
+        let write_duration = write_start_time.elapsed();
+        info!("Writing took {}", write_duration);
+        let mut test_read: [u8; 16] = [0; 16];
+        hyperram.read_blocking(0x100u32, &mut test_read);
+        info!("test_read: {}", test_read);
+        let mut test_read2: [u8; 16] = [0; 16];
+        hyperram.read_blocking(0x5700u32, &mut test_read2);
+        info!("test_read2: {}", test_read2);
+    }
+
+    let mut hyperram = HyperRamReadOnly::new(&mut common, &pac::PIO2, sm0, hyperrampins);
+    let dat = hyperram.read_blocking(0x100u32);
+    let dat2 = hyperram.read_blocking(0x105u32);
+    let dat3 = hyperram.read_blocking(0x1208u32);
+    let dat4 = hyperram.read_blocking(0x1209u32);
+    let dat5 = hyperram.read_blocking(0x6707u32);
+    info!(
+        "dat {:#x} dat2 {:#x} dat3 {:#x} dat4 {:#x} dat5 {:#x}",
+        dat, dat2, dat3, dat4, dat5
+    );
+
+    let mut current_higher_base_addr = 0x4000u32;
+
+    let _hyperram_gb_dma = GbReadSniffDmaConfig::new(
+        p.DMA_CH3,
+        p.DMA_CH4,
+        p.DMA_CH5,
+        p.DMA_CH6,
+        &gb_rom_higher_pio,
+        &hyperram,
+        &hyperram,
+        &gb_data_out_pio,
+        ptr::addr_of_mut!(current_higher_base_addr),
     );
 
     reset_pin.set_low();

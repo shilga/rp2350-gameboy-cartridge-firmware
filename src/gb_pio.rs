@@ -2,11 +2,120 @@ use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
 use embassy_rp::{
     pac,
     pio::{
-        Common, Config, Direction, ExecConfig, Instance, PinConfig, PioPin, ShiftConfig,
+        Common, Config, Direction, ExecConfig, Instance, Pin, PinConfig, PioPin, ShiftConfig,
         ShiftDirection, StateMachine,
     },
     Peripherals,
 };
+
+pub struct GbPioPins<'d, P: Instance> {
+    pub addr_pins: [Pin<'d, P>; 16],
+    pub data_pins: [Pin<'d, P>; 8],
+    pub ctrl_pins: [Pin<'d, P>; 3],
+    pub debug_pin: Option<Pin<'d, P>>,
+}
+impl<'d, P: Instance> GbPioPins<'d, P> {
+    pub fn new(
+        pio: &mut Common<'d, P>,
+        clk_pin: impl PioPin,
+        rd_pin: impl PioPin,
+        cs_pin: impl PioPin,
+        a0_pin: impl PioPin,
+        a1_pin: impl PioPin,
+        a2_pin: impl PioPin,
+        a3_pin: impl PioPin,
+        a4_pin: impl PioPin,
+        a5_pin: impl PioPin,
+        a6_pin: impl PioPin,
+        a7_pin: impl PioPin,
+        a8_pin: impl PioPin,
+        a9_pin: impl PioPin,
+        a10_pin: impl PioPin,
+        a11_pin: impl PioPin,
+        a12_pin: impl PioPin,
+        a13_pin: impl PioPin,
+        a14_pin: impl PioPin,
+        a15_pin: impl PioPin,
+        d0_pin: impl PioPin,
+        d1_pin: impl PioPin,
+        d2_pin: impl PioPin,
+        d3_pin: impl PioPin,
+        d4_pin: impl PioPin,
+        d5_pin: impl PioPin,
+        d6_pin: impl PioPin,
+        d7_pin: impl PioPin,
+        debug_pin: Option<impl PioPin>,
+    ) -> Self {
+        let mut ctrl_pins: [embassy_rp::pio::Pin<'_, P>; 3] = [
+            pio.make_pio_pin(clk_pin),
+            pio.make_pio_pin(rd_pin),
+            pio.make_pio_pin(cs_pin),
+        ];
+
+        let mut addr_pins: [embassy_rp::pio::Pin<'_, P>; 16] = [
+            pio.make_pio_pin(a0_pin),
+            pio.make_pio_pin(a1_pin),
+            pio.make_pio_pin(a2_pin),
+            pio.make_pio_pin(a3_pin),
+            pio.make_pio_pin(a4_pin),
+            pio.make_pio_pin(a5_pin),
+            pio.make_pio_pin(a6_pin),
+            pio.make_pio_pin(a7_pin),
+            pio.make_pio_pin(a8_pin),
+            pio.make_pio_pin(a9_pin),
+            pio.make_pio_pin(a10_pin),
+            pio.make_pio_pin(a11_pin),
+            pio.make_pio_pin(a12_pin),
+            pio.make_pio_pin(a13_pin),
+            pio.make_pio_pin(a14_pin),
+            pio.make_pio_pin(a15_pin),
+        ];
+
+        let mut data_pins = [
+            pio.make_pio_pin(d0_pin),
+            pio.make_pio_pin(d1_pin),
+            pio.make_pio_pin(d2_pin),
+            pio.make_pio_pin(d3_pin),
+            pio.make_pio_pin(d4_pin),
+            pio.make_pio_pin(d5_pin),
+            pio.make_pio_pin(d6_pin),
+            pio.make_pio_pin(d7_pin),
+        ];
+
+        for pin in &mut ctrl_pins {
+            pac::PADS_BANK0.gpio(pin.pin() as usize).modify(|w| {
+                w.set_ie(true);
+            })
+        }
+
+        for pin in &mut addr_pins {
+            pac::PADS_BANK0.gpio(pin.pin() as usize).modify(|w| {
+                w.set_ie(true);
+            })
+        }
+
+        for pin in &mut data_pins {
+            pac::PADS_BANK0.gpio(pin.pin() as usize).modify(|w| {
+                w.set_ie(true);
+            })
+        }
+
+        let debug_pin = match debug_pin {
+            Some(pin) => {
+                let pin = pio.make_pio_pin(pin);
+                Some(pin)
+            }
+            None => None,
+        };
+
+        Self {
+            ctrl_pins,
+            addr_pins,
+            data_pins,
+            debug_pin,
+        }
+    }
+}
 
 pub struct GbDataOut<'d, P: Instance, const S: usize> {
     sm: StateMachine<'d, P, S>,
@@ -18,6 +127,7 @@ impl<'d, P: Instance, const S: usize> GbDataOut<'d, P, S> {
         pio: &mut Common<'d, P>,
         p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
+        pins: &GbPioPins<'d, P>,
     ) -> Self {
         let program = pio_proc::pio_file!(
             "./pio/gameboy_bus.pio",
@@ -37,9 +147,14 @@ impl<'d, P: Instance, const S: usize> GbDataOut<'d, P, S> {
             threshold: 8,
             direction: ShiftDirection::Right,
         };
-        cfg.use_program(&pio.load_program(&program.program), &[]);
+        cfg.use_program(
+            &pio.load_program(&program.program),
+            &[pins.debug_pin.as_ref().unwrap()],
+        );
 
         sm.set_config(&cfg);
+
+        sm.set_pin_dirs(Direction::Out, &[pins.debug_pin.as_ref().unwrap()]);
 
         Self { sm, p }
     }
@@ -131,6 +246,7 @@ impl<'d, P: Instance, const S: usize> GbRomLower<'d, P, S> {
         pio: &mut Common<'d, P>,
         p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
+        pins: &GbPioPins<'d, P>,
     ) -> Self {
         let program = pio_proc::pio_file!(
             "./pio/gameboy_bus.pio",
@@ -155,7 +271,10 @@ impl<'d, P: Instance, const S: usize> GbRomLower<'d, P, S> {
             threshold: 14,
             direction: ShiftDirection::Left,
         };
-        cfg.use_program(&pio.load_program(&program.program), &[]);
+        cfg.use_program(
+            &pio.load_program(&program.program),
+            &[pins.debug_pin.as_ref().unwrap()],
+        );
 
         sm.set_config(&cfg);
 
@@ -187,6 +306,7 @@ impl<'d, P: Instance, const S: usize> GbRomHigher<'d, P, S> {
         pio: &mut Common<'d, P>,
         p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
+        pins: &GbPioPins<'d, P>,
     ) -> Self {
         let program = pio_proc::pio_file!(
             "./pio/gameboy_bus.pio",
@@ -211,7 +331,10 @@ impl<'d, P: Instance, const S: usize> GbRomHigher<'d, P, S> {
             threshold: 14,
             direction: ShiftDirection::Left,
         };
-        cfg.use_program(&pio.load_program(&program.program), &[]);
+        cfg.use_program(
+            &pio.load_program(&program.program),
+            &[pins.debug_pin.as_ref().unwrap()],
+        );
 
         sm.set_config(&cfg);
 

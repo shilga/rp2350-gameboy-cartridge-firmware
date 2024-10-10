@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 /// Trait which is implemented by anything that can be read via DMA.
 ///
 /// # Safety
