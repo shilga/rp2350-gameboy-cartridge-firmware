@@ -155,10 +155,30 @@ async fn main(spawner: Spawner) {
     let mut _gb_bus_en = Output::new(p.PIN_44, Level::High);
 
     let Pio {
-        mut common, sm0, ..
+        common: mut pio0,
+        sm0: sm0_0,
+        sm1: _sm0_1,
+        sm2: _sm0_2,
+        sm3: _sm0_3,
+        ..
     } = Pio::new(p.PIO0, Irqs);
 
-    let ws2812 = Ws2812::new(&mut common, sm0, p.PIN_47);
+    let Pio {
+        common: mut pio1,
+        sm0: sm1_0,
+        sm1: sm1_1,
+        sm2: sm1_2,
+        sm3: sm1_3,
+        ..
+    } = Pio::new(p.PIO1, Irqs);
+
+    let Pio {
+        common: mut pio2,
+        sm0: mut sm2_0,
+        ..
+    } = Pio::new(p.PIO2, Irqs);
+
+    let ws2812 = Ws2812::new(&mut pio0, sm0_0, p.PIN_47);
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USB, Irqs);
@@ -223,28 +243,19 @@ async fn main(spawner: Spawner) {
     // Build the builder.
     let usb = builder.build();
 
-    let Pio {
-        mut common,
-        sm0,
-        sm1,
-        sm2,
-        sm3,
-        ..
-    } = Pio::new(p.PIO1, Irqs);
-
     #[rustfmt::skip]
     let gb_pio_pins = GbPioPins::new(
-        &mut common,
+        &mut pio1,
         p.PIN_17, p.PIN_18, p.PIN_19,
         p.PIN_20, p.PIN_21, p.PIN_22, p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_26, p.PIN_27,
         p.PIN_28, p.PIN_29, p.PIN_30, p.PIN_31, p.PIN_32, p.PIN_33, p.PIN_34, p.PIN_35,
         p.PIN_36, p.PIN_37, p.PIN_38, p.PIN_39, p.PIN_40, p.PIN_41, p.PIN_42, p.PIN_43,
         Some(p.PIN_46)
     );
-    let mut gb_rom_detect_pio = GbRomDetect::new(&mut common, &pac::PIO1, sm2);
-    let mut gb_rom_lower_pio = GbRomLower::new(&mut common, &pac::PIO1, sm0, &gb_pio_pins);
-    let mut gb_rom_higher_pio = GbRomHigher::new(&mut common, &pac::PIO1, sm1, &gb_pio_pins);
-    let mut gb_data_out_pio = GbDataOut::new(&mut common, &pac::PIO1, sm3, &gb_pio_pins);
+    let mut gb_rom_detect_pio = GbRomDetect::new(&mut pio1, &pac::PIO1, sm1_2);
+    let mut gb_rom_lower_pio = GbRomLower::new(&mut pio1, &pac::PIO1, sm1_0, &gb_pio_pins);
+    let mut gb_rom_higher_pio = GbRomHigher::new(&mut pio1, &pac::PIO1, sm1_1, &gb_pio_pins);
+    let mut gb_data_out_pio = GbDataOut::new(&mut pio1, &pac::PIO1, sm1_3, &gb_pio_pins);
 
     info!("gpiobase: {}", pac::PIO1.gpiobase().read().gpiobase());
 
@@ -346,29 +357,13 @@ async fn main(spawner: Spawner) {
         read_duration.as_millis()
     );
 
-    let Pio {
-        mut common,
-        mut sm0,
-        ..
-    } = Pio::new(p.PIO2, Irqs);
-
     let hyperrampins = HyperRamPins::new(
-        &mut common,
-        p.PIN_6,
-        p.PIN_7,
-        p.PIN_8,
-        p.PIN_9,
-        p.PIN_10,
-        p.PIN_11,
-        p.PIN_12,
-        p.PIN_13,
-        p.PIN_14,
-        p.PIN_15,
-        p.PIN_16,
+        &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
+        p.PIN_14, p.PIN_15, p.PIN_16,
     );
 
     {
-        let mut hyperram = HyperRam::new(&mut common, &mut sm0, &hyperrampins);
+        let mut hyperram = HyperRam::new(&mut pio2, &mut sm2_0, &hyperrampins);
 
         hyperram.init();
 
