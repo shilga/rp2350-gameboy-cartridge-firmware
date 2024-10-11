@@ -68,3 +68,17 @@ idle:
     .wrap
 
 
+.program gameboy_mbc_commands
+on_write:
+    in pins 16 ; shift in all addr pins
+    in null 16; fill up with zeros, triggers auto-push
+    wait 0 pin 29 [3] ; wait for clk to become low
+    in pins 24 ; sample addr pins + data pins
+    in null 24 ; fill up with zeroes, shift out addr pins to leave only data, triggers auto push
+.wrap_target
+public entry_point:
+    wait 1 pin 29                     ; wait for clk cycle to end
+    wait 0 pin 15 ; wait for a15 to become low
+    jmp pin on_write ; on reads back to idle
+    wait 0 pin 29 ; wait for clk to become low
+    .wrap ; wrap back to beginning

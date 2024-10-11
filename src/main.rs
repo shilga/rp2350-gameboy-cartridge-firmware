@@ -30,9 +30,6 @@ use embedded_io::{ErrorType, Write};
 
 use embedded_sdmmc::sdcard::SdCard;
 
-use gb_dma::GbReadSniffDmaConfig;
-use gb_pio::GbPioPins;
-use hyperram::HyperRamPins;
 use smart_leds::RGB8;
 
 use core::mem::MaybeUninit;
@@ -50,13 +47,16 @@ mod picotool_reset;
 use crate::picotool_reset::PicotoolReset;
 
 mod gb_pio;
-use crate::gb_pio::{GbDataOut, GbRomDetect, GbRomHigher, GbRomLower};
+use crate::gb_pio::{GbDataOut, GbMbcCommands, GbPioPins, GbRomDetect, GbRomHigher, GbRomLower};
 
 mod gb_dma;
-use crate::gb_dma::GbReadDmaConfig;
+use crate::gb_dma::{GbReadDmaConfig, GbReadSniffDmaConfig};
+
+mod gb_mbc;
+use crate::gb_mbc::Mbc1;
 
 mod hyperram;
-use crate::hyperram::{HyperRam, HyperRamReadOnly};
+use crate::hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
 
 mod dma_helper;
 
@@ -157,7 +157,7 @@ async fn main(spawner: Spawner) {
     let Pio {
         common: mut pio0,
         sm0: sm0_0,
-        sm1: _sm0_1,
+        sm1: sm0_1,
         sm2: _sm0_2,
         sm3: _sm0_3,
         ..
@@ -260,22 +260,13 @@ async fn main(spawner: Spawner) {
     info!("gpiobase: {}", pac::PIO1.gpiobase().read().gpiobase());
 
     let gb_rom = unsafe {
-        core::slice::from_raw_parts_mut(ptr::addr_of!(_s_gb_rom_memory) as *mut u8, 0x8000)
+        core::slice::from_raw_parts_mut(ptr::addr_of!(_s_gb_rom_memory) as *mut u8, 0x10000)
     };
 
-    unsafe {
-        info!("pos0 before: {}", _s_gb_rom_memory);
-    }
-
     let mut testvarptr = unsafe { ptr::addr_of_mut!(_s_gb_rom_memory) };
-    info!("testvarptr {}", testvarptr);
 
-    let bytes = include_bytes!("bootloader.gb");
-    gb_rom[..bytes.len()].copy_from_slice(bytes);
-
-    unsafe {
-        info!("pos 0x30 after: {}", *(testvarptr.add(0x30usize)));
-    }
+    // let bytes = include_bytes!("bootloader.gb");
+    // gb_rom[..bytes.len()].copy_from_slice(bytes);
 
     let _read_dma_lower = GbReadDmaConfig::new(
         p.DMA_CH0,
@@ -346,7 +337,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     let mut file = root_dir
-        .open_file_in_dir("TETRIS.GB", embedded_sdmmc::Mode::ReadOnly)
+        .open_file_in_dir("MARIO.GB", embedded_sdmmc::Mode::ReadOnly)
         .unwrap();
     let read_start_time = Instant::now();
     let num_read = file.read(gb_rom).unwrap();
@@ -377,7 +368,7 @@ async fn main(spawner: Spawner) {
         );
 
         let write_start_time = Instant::now();
-        hyperram.write_blocking(0x4000, &gb_rom[0x4000..]);
+        hyperram.write_blocking(0x4000, &gb_rom[0x4000..0x8000]);
         let write_duration = write_start_time.elapsed();
         info!("Writing took {}", write_duration);
         let mut test_read: [u8; 16] = [0; 16];
@@ -386,9 +377,12 @@ async fn main(spawner: Spawner) {
         let mut test_read2: [u8; 16] = [0; 16];
         hyperram.read_blocking(0x5700u32, &mut test_read2);
         info!("test_read2: {}", test_read2);
+
+        hyperram.write_blocking(0x8000, &gb_rom[0x8000..0xC000]);
+        hyperram.write_blocking(0xC000, &gb_rom[0xC000..]);
     }
 
-    let mut hyperram = HyperRamReadOnly::new(&mut common, &pac::PIO2, sm0, hyperrampins);
+    let mut hyperram = HyperRamReadOnly::new(&mut pio2, &pac::PIO2, sm2_0, hyperrampins);
     let dat = hyperram.read_blocking(0x100u32);
     let dat2 = hyperram.read_blocking(0x105u32);
     let dat3 = hyperram.read_blocking(0x1208u32);
@@ -399,7 +393,7 @@ async fn main(spawner: Spawner) {
         dat, dat2, dat3, dat4, dat5
     );
 
-    let mut current_higher_base_addr = 0x4000u32;
+    let mut current_higher_base_addr: u32 = 0x4000u32;
 
     let _hyperram_gb_dma = GbReadSniffDmaConfig::new(
         p.DMA_CH3,
@@ -413,7 +407,20 @@ async fn main(spawner: Spawner) {
         ptr::addr_of_mut!(current_higher_base_addr),
     );
 
+    let mut gb_mbc_commands_pio = GbMbcCommands::new(&mut pio0, &pac::PIO0, sm0_1);
+
+    gb_mbc_commands_pio.start();
+
+    let mut mbc = Mbc1::new(
+        gb_mbc_commands_pio.rx_fifo(),
+        ptr::addr_of_mut!(current_higher_base_addr),
+    );
+
+    cortex_m::interrupt::disable();
+
     reset_pin.set_low();
+
+    mbc.run();
 
     loop {
         // defmt::info!("hello there!");
