@@ -14,7 +14,7 @@ MEMORY {
 
     GB_ROM_MEMORY : ORIGIN = 0x20000000 + 320K, LENGTH = 64K
 
-    GB_SAFE_RAM : ORIGIN = 0x20000000 + 320K + 64K, LENGTH = 128K
+    GB_SAVE_RAM : ORIGIN = 0x20000000 + 320K + 64K, LENGTH = 128K
 
     /*
      * RAM banks 8 and 9 use a direct mapping. They can be used to have
@@ -81,6 +81,12 @@ SECTIONS {
         _s_gb_rom_memory = .;
         KEEP(*(.gb_rom_memory));
     } > GB_ROM_MEMORY
+
+    .gb_save_ram (NOLOAD): ALIGN(4)
+    {
+        _s_gb_save_ram = .;
+        KEEP(*(.gb_save_ram));
+    } > GB_SAVE_RAM
 } INSERT AFTER .end_block;
 
 PROVIDE(start_to_end = __end_block_addr - __start_block_addr);

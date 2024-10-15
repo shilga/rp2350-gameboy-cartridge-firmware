@@ -13,10 +13,9 @@
 .define PIN_A15_INT 19
 
 .program gameboy_bus_write_to_data
-.side_set 1 opt
 .wrap_target
     pull block                                 ; pull the data from the Tx FIFO into the OSR
-    out  pins 8  side 0                             ; output 8 bits of data
+    out  pins 8                              ; output 8 bits of data
     mov  osr ~null                             ; OSR=FFFFFFFF
     out  pindirs 8                             ; start driving the data bus
     wait 0 pin 0                        ; wait for clk
@@ -47,24 +46,22 @@ hdma_read:
 
 
 .program gameboy_bus_rom_low
-.side_set 1 opt
 idle:
 .wrap_target
     wait 1 irq 0 rel ; will wait on irq 0 on SM0 (low) and irq 1 on SM1 (high)
     jmp pin idle ; on reads back to idle
 
-    in   pins 14  side 1       ; shift A0 to A13 pins into ISR and auto push
+    in   pins 14         ; shift A0 to A13 pins into ISR and auto push
     .wrap
 
 
 .program gameboy_bus_rom_high
-.side_set 1 opt
 idle:
 .wrap_target
     wait 1 irq 0 rel ; will wait on irq 0 on SM0 (low) and irq 1 on SM1 (high)
     jmp pin idle ; on reads back to idle
 
-    in   pins 14  side 1        ; shift A0 to A13 pins into ISR and auto push
+    in   pins 14         ; shift A0 to A13 pins into ISR and auto push
     .wrap
 
 
@@ -82,3 +79,39 @@ public entry_point:
     jmp pin on_write ; on reads back to idle
     wait 0 pin 29 ; wait for clk to become low
     .wrap ; wrap back to beginning
+
+
+.program gameboy_saveram_read
+on_write:
+    irq set 0
+public entry_point:                                     ; *** Default Entry Point ***
+    set x 5 ; set compare value
+.wrap_target
+idle:
+    wait 1 pin 29                     ; wait for clk cycle to end
+    wait 0 pin 31                     ; wait for cs to become low
+
+    in pins 16 ; shift in all addr pins
+    in null 29 ; shift A0 to A12 out of isr. A15 is at pos 2 afterwards, A13 at pos 0
+    mov y isr ; mov isr into y
+    jmp x!=y idle ; if this is not a saveram access back to idle
+
+    jmp pin on_write ; on writes we do things different
+
+    in pins 13  ; sample A0 to A12 addr pins again
+    in null 19 ; shift addr to the right position 
+    push
+    wait 0 pin 29 ; sync clk cycle
+
+    .wrap
+
+
+.program gameboy_saveram_write
+.wrap_target
+    wait 1 irq 0
+    in pins 16 ; shift all addr pins in
+    in null 16 ; shift addr to right position and auto-push
+    wait 0 pin 29 [4] ; wait for second half of clk cycle
+    in pins 24 ; shift in addr pins and data pins
+    in null 24 ; shift data pins to right position and auto push
+    .wrap

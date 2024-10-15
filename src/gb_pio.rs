@@ -146,14 +146,16 @@ impl<'d, P: Instance, const S: usize> GbDataOut<'d, P, S> {
             threshold: 8,
             direction: ShiftDirection::Right,
         };
-        cfg.use_program(
-            &pio.load_program(&program.program),
-            &[pins.debug_pin.as_ref().unwrap()],
-        );
+        cfg.use_program(&pio.load_program(&program.program), &[]);
 
         sm.set_config(&cfg);
 
-        sm.set_pin_dirs(Direction::Out, &[pins.debug_pin.as_ref().unwrap()]);
+        match &pins.debug_pin {
+            Some(pin) => {
+                sm.set_pin_dirs(Direction::Out, &[&pin]);
+            }
+            _ => {}
+        }
 
         Self { sm, p }
     }
@@ -240,7 +242,7 @@ impl<'d, P: Instance, const S: usize> GbRomLower<'d, P, S> {
         pio: &mut Common<'d, P>,
         p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
-        pins: &GbPioPins<'d, P>,
+        _pins: &GbPioPins<'d, P>,
     ) -> Self {
         let program = pio_proc::pio_file!(
             "./pio/gameboy_bus.pio",
@@ -265,10 +267,7 @@ impl<'d, P: Instance, const S: usize> GbRomLower<'d, P, S> {
             threshold: 14,
             direction: ShiftDirection::Left,
         };
-        cfg.use_program(
-            &pio.load_program(&program.program),
-            &[pins.debug_pin.as_ref().unwrap()],
-        );
+        cfg.use_program(&pio.load_program(&program.program), &[]);
 
         sm.set_config(&cfg);
 
@@ -310,7 +309,7 @@ impl<'d, P: Instance, const S: usize> GbRomHigher<'d, P, S> {
         pio: &mut Common<'d, P>,
         p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
-        pins: &GbPioPins<'d, P>,
+        _pins: &GbPioPins<'d, P>,
     ) -> Self {
         let program = pio_proc::pio_file!(
             "./pio/gameboy_bus.pio",
@@ -335,10 +334,7 @@ impl<'d, P: Instance, const S: usize> GbRomHigher<'d, P, S> {
             threshold: 14,
             direction: ShiftDirection::Left,
         };
-        cfg.use_program(
-            &pio.load_program(&program.program),
-            &[pins.debug_pin.as_ref().unwrap()],
-        );
+        cfg.use_program(&pio.load_program(&program.program), &[]);
 
         sm.set_config(&cfg);
 
@@ -351,6 +347,75 @@ impl<'d, P: Instance, const S: usize> GbRomHigher<'d, P, S> {
 }
 
 unsafe impl<'d, P: Instance, const S: usize> DmaReadTarget for GbRomHigher<'d, P, S> {
+    type ReceivedWord = u32;
+
+    fn rx_treq(&self) -> Option<u8> {
+        let pio_num: u8 = ((self.p.as_ptr() as u32 - pac::PIO0.as_ptr() as u32) / 0x10_0000u32)
+            .try_into()
+            .unwrap();
+
+        Some(pio_num * 8 + 4 + S as u8)
+    }
+
+    fn rx_address_count(&self) -> (u32, u32) {
+        let ptr = self.p.rxf(S).as_ptr();
+        (ptr as u32, 1u32)
+    }
+
+    fn rx_increment(&self) -> bool {
+        false
+    }
+}
+
+pub struct GbRamRead<'d, P: Instance, const S: usize> {
+    sm: StateMachine<'d, P, S>,
+    p: &'static pac::pio::Pio,
+}
+impl<'d, P: Instance, const S: usize> GbRamRead<'d, P, S> {
+    pub fn new(
+        pio: &mut Common<'d, P>,
+        p: &'static pac::pio::Pio,
+        mut sm: StateMachine<'d, P, S>,
+    ) -> Self {
+        let program = pio_proc::pio_file!(
+            "./pio/gameboy_bus.pio",
+            select_program("gameboy_saveram_read"),
+            options(max_program_size = 32) // Optional, defaults to 32
+        );
+        let mut cfg = Config::default();
+        let mut pincfg = PinConfig::default();
+        pincfg.in_base = program.public_defines.pin_ad_base as u8;
+        pincfg.out_base = program.public_defines.pin_data_base as u8;
+        pincfg.out_count = 8;
+        unsafe {
+            cfg.set_pins(pincfg);
+        }
+        let mut execcfg = ExecConfig::default();
+        execcfg.jmp_pin = program.public_defines.pin_rd as u8 - 16; // todo: offset should be calculated automatically
+        unsafe {
+            cfg.set_exec(execcfg);
+        }
+        cfg.shift_in = ShiftConfig {
+            auto_fill: false,
+            threshold: 32,
+            direction: ShiftDirection::Right,
+        };
+
+        let mut lprogram = pio.load_program(&program.program);
+        lprogram.origin += program.public_defines.entry_point as u8; // offset the start
+        cfg.use_program(&lprogram, &[]);
+
+        sm.set_config(&cfg);
+
+        Self { sm, p }
+    }
+
+    pub fn start(&mut self) {
+        self.sm.set_enable(true);
+    }
+}
+
+unsafe impl<'d, P: Instance, const S: usize> DmaReadTarget for GbRamRead<'d, P, S> {
     type ReceivedWord = u32;
 
     fn rx_treq(&self) -> Option<u8> {

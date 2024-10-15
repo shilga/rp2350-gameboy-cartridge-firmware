@@ -9,7 +9,7 @@
 
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::USB;
+use embassy_rp::peripherals::{PIN_46, USB};
 use embassy_rp::peripherals::{PIO0, PIO1, PIO2, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::uart::{self};
@@ -30,9 +30,9 @@ use embedded_io::{ErrorType, Write};
 
 use embedded_sdmmc::sdcard::SdCard;
 
+use gb_pio::GbRamRead;
 use smart_leds::RGB8;
 
-use core::mem::MaybeUninit;
 use core::ptr;
 
 use defmt::info;
@@ -45,6 +45,9 @@ use crate::ws2812::Ws2812;
 
 mod picotool_reset;
 use crate::picotool_reset::PicotoolReset;
+
+mod gb_bootloader;
+use crate::gb_bootloader::GbBootloader;
 
 mod gb_pio;
 use crate::gb_pio::{GbDataOut, GbMbcCommands, GbPioPins, GbRomDetect, GbRomHigher, GbRomLower};
@@ -119,12 +122,9 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
     }
 }
 
-#[link_section = ".gb_rom_memory"]
-#[used]
-pub static mut GB_ROM_MEMORY: MaybeUninit<[u8; 4 * 0x4000]> = MaybeUninit::uninit();
-
 extern "C" {
     static mut _s_gb_rom_memory: u8;
+    static mut _s_gb_save_ram: u8;
 }
 
 #[embassy_executor::main]
@@ -141,12 +141,12 @@ async fn main(spawner: Spawner) {
         .unwrap()
         .post_div1 = 5;
     let p = embassy_rp::init(rp_config);
-    // let config = uart::Config::default();
-    // let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
+    let config = uart::Config::default();
+    let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
 
-    // let serialwrapper = SerialWrapper { uart };
+    let serialwrapper = SerialWrapper { uart };
 
-    // defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
+    defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
 
     let sys_freq = clocks::clk_sys_freq();
     info!("Hello defmt-world!, running at {} hz", sys_freq);
@@ -158,7 +158,7 @@ async fn main(spawner: Spawner) {
         common: mut pio0,
         sm0: sm0_0,
         sm1: sm0_1,
-        sm2: _sm0_2,
+        sm2: sm0_2,
         sm3: _sm0_3,
         ..
     } = Pio::new(p.PIO0, Irqs);
@@ -250,12 +250,15 @@ async fn main(spawner: Spawner) {
         p.PIN_20, p.PIN_21, p.PIN_22, p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_26, p.PIN_27,
         p.PIN_28, p.PIN_29, p.PIN_30, p.PIN_31, p.PIN_32, p.PIN_33, p.PIN_34, p.PIN_35,
         p.PIN_36, p.PIN_37, p.PIN_38, p.PIN_39, p.PIN_40, p.PIN_41, p.PIN_42, p.PIN_43,
-        Some(p.PIN_46)
+        None::<PIN_46>
     );
     let mut gb_rom_detect_pio = GbRomDetect::new(&mut pio1, &pac::PIO1, sm1_2);
     let mut gb_rom_lower_pio = GbRomLower::new(&mut pio1, &pac::PIO1, sm1_0, &gb_pio_pins);
     let mut gb_rom_higher_pio = GbRomHigher::new(&mut pio1, &pac::PIO1, sm1_1, &gb_pio_pins);
     let mut gb_data_out_pio = GbDataOut::new(&mut pio1, &pac::PIO1, sm1_3, &gb_pio_pins);
+
+    let mut gb_mbc_commands_pio = GbMbcCommands::new(&mut pio0, &pac::PIO0, sm0_1);
+    let mut gb_ram_read_pio = GbRamRead::new(&mut pio0, &pac::PIO0, sm0_2);
 
     info!("gpiobase: {}", pac::PIO1.gpiobase().read().gpiobase());
 
@@ -263,17 +266,28 @@ async fn main(spawner: Spawner) {
         core::slice::from_raw_parts_mut(ptr::addr_of!(_s_gb_rom_memory) as *mut u8, 0x10000)
     };
 
-    let mut testvarptr = unsafe { ptr::addr_of_mut!(_s_gb_rom_memory) };
+    let gb_save_ram = unsafe {
+        core::slice::from_raw_parts_mut(ptr::addr_of!(_s_gb_save_ram) as *mut u8, 0x20000)
+    };
 
-    // let bytes = include_bytes!("bootloader.gb");
-    // gb_rom[..bytes.len()].copy_from_slice(bytes);
+    let mut gb_rom_ptr = unsafe { ptr::addr_of_mut!(_s_gb_rom_memory) };
+    let mut gb_ram_ptr = unsafe { ptr::addr_of_mut!(_s_gb_save_ram) };
 
     let _read_dma_lower = GbReadDmaConfig::new(
         p.DMA_CH0,
         p.DMA_CH1,
         p.DMA_CH2,
-        ptr::addr_of_mut!(testvarptr),
+        ptr::addr_of_mut!(gb_rom_ptr),
         &gb_rom_lower_pio,
+        &gb_data_out_pio,
+    );
+
+    let _read_dma_saveram = GbReadDmaConfig::new(
+        p.DMA_CH3,
+        p.DMA_CH4,
+        p.DMA_CH5,
+        ptr::addr_of_mut!(gb_ram_ptr),
+        &gb_ram_read_pio,
         &gb_data_out_pio,
     );
 
@@ -282,9 +296,10 @@ async fn main(spawner: Spawner) {
     spawner.spawn(usb_task(usb)).unwrap();
 
     gb_rom_lower_pio.start();
-    gb_rom_higher_pio.start();
+    // gb_rom_higher_pio.start();
     gb_data_out_pio.start();
     gb_rom_detect_pio.start();
+    gb_ram_read_pio.start();
 
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
@@ -312,41 +327,17 @@ async fn main(spawner: Spawner) {
     // To do this we need a Volume Manager. It will take ownership of the block device.
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, DummyTimesource());
 
-    // Try and access Volume 0 (i.e. the first partition).
-    // The volume object holds information about the filesystem on that volume.
-    let mut volume0 = volume_mgr
-        .open_volume(embedded_sdmmc::VolumeIdx(0))
-        .unwrap();
-    info!("Volume 0: {:?}", defmt::Debug2Format(&volume0));
+    {
+        let mut gb_bootloader = GbBootloader::new(
+            &mut volume_mgr,
+            gb_mbc_commands_pio.rx_fifo(),
+            gb_rom,
+            gb_save_ram,
+            &mut reset_pin,
+        );
 
-    // Open the root directory (mutably borrows from the volume).
-    let mut root_dir = volume0.open_root_dir().unwrap();
-    root_dir
-        .iterate_dir(|entry| {
-            info!(
-                "{} {} {}",
-                defmt::Debug2Format(&entry.name),
-                entry.size,
-                if entry.attributes.is_directory() {
-                    "<DIR>"
-                } else {
-                    ""
-                }
-            );
-        })
-        .unwrap();
-
-    let mut file = root_dir
-        .open_file_in_dir("MARIO.GB", embedded_sdmmc::Mode::ReadOnly)
-        .unwrap();
-    let read_start_time = Instant::now();
-    let num_read = file.read(gb_rom).unwrap();
-    let read_duration = read_start_time.elapsed();
-    info!(
-        "Read {} bytes in {} ms",
-        num_read,
-        read_duration.as_millis()
-    );
+        gb_bootloader.run().await;
+    }
 
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
@@ -396,18 +387,16 @@ async fn main(spawner: Spawner) {
     let mut current_higher_base_addr: u32 = 0x4000u32;
 
     let _hyperram_gb_dma = GbReadSniffDmaConfig::new(
-        p.DMA_CH3,
-        p.DMA_CH4,
-        p.DMA_CH5,
         p.DMA_CH6,
+        p.DMA_CH7,
+        p.DMA_CH8,
+        p.DMA_CH9,
         &gb_rom_higher_pio,
         &hyperram,
         &hyperram,
         &gb_data_out_pio,
         ptr::addr_of_mut!(current_higher_base_addr),
     );
-
-    let mut gb_mbc_commands_pio = GbMbcCommands::new(&mut pio0, &pac::PIO0, sm0_1);
 
     gb_mbc_commands_pio.start();
 
