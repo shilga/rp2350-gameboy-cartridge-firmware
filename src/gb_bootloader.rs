@@ -65,7 +65,7 @@ where
 
     pub async fn run(&mut self) {
         // load the bootloader binary
-        let bytes = include_bytes!("bootloader.gb");
+        let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/bootloader.gb"));
         self.gb_rom_memory[..bytes.len()].copy_from_slice(bytes);
 
         // Try and access Volume 0 (i.e. the first partition).
