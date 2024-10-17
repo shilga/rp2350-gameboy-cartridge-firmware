@@ -109,9 +109,9 @@ idle:
 .program gameboy_saveram_write
 .wrap_target
     wait 1 irq 0
-    in pins 16 ; shift all addr pins in
-    in null 16 ; shift addr to right position and auto-push
-    wait 0 pin 29 [4] ; wait for second half of clk cycle
+    in pins 13 ; sample A0 to A12 addr pins
+    in null 19 ; shift addr to right position and auto-push
+    wait 0 pin 29 [6] ; wait for second half of clk cycle
     in pins 24 ; shift in addr pins and data pins
     in null 24 ; shift data pins to right position and auto push
     .wrap

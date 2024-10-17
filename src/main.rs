@@ -50,16 +50,18 @@ mod gb_bootloader;
 use crate::gb_bootloader::GbBootloader;
 
 mod gb_pio;
-use crate::gb_pio::{GbDataOut, GbMbcCommands, GbPioPins, GbRomDetect, GbRomHigher, GbRomLower};
+use gb_pio::{
+    GbDataOut, GbMbcCommands, GbPioPins, GbRamWrite, GbRomDetect, GbRomHigher, GbRomLower,
+};
 
 mod gb_dma;
-use crate::gb_dma::{GbReadDmaConfig, GbReadSniffDmaConfig};
+use gb_dma::{GbReadDmaConfig, GbReadSniffDmaConfig, GbWriteDmaConfig};
 
 mod gb_mbc;
-use crate::gb_mbc::Mbc1;
+use gb_mbc::Mbc1;
 
 mod hyperram;
-use crate::hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
+use hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
 
 mod dma_helper;
 
@@ -159,7 +161,7 @@ async fn main(spawner: Spawner) {
         sm0: sm0_0,
         sm1: sm0_1,
         sm2: sm0_2,
-        sm3: _sm0_3,
+        sm3: sm0_3,
         ..
     } = Pio::new(p.PIO0, Irqs);
 
@@ -178,7 +180,7 @@ async fn main(spawner: Spawner) {
         ..
     } = Pio::new(p.PIO2, Irqs);
 
-    let ws2812 = Ws2812::new(&mut pio0, sm0_0, p.PIN_47);
+    // let ws2812 = Ws2812::new(&mut pio0, sm0_0, p.PIN_47);
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USB, Irqs);
@@ -259,6 +261,7 @@ async fn main(spawner: Spawner) {
 
     let mut gb_mbc_commands_pio = GbMbcCommands::new(&mut pio0, &pac::PIO0, sm0_1);
     let mut gb_ram_read_pio = GbRamRead::new(&mut pio0, &pac::PIO0, sm0_2);
+    let mut gb_ram_write_pio = GbRamWrite::new(&mut pio0, &pac::PIO0, sm0_3);
 
     info!("gpiobase: {}", pac::PIO1.gpiobase().read().gpiobase());
 
@@ -291,15 +294,24 @@ async fn main(spawner: Spawner) {
         &gb_data_out_pio,
     );
 
+    let _write_dma_saveram = GbWriteDmaConfig::new(
+        p.DMA_CH6,
+        p.DMA_CH7,
+        p.DMA_CH8,
+        ptr::addr_of_mut!(gb_ram_ptr),
+        &gb_ram_write_pio,
+    );
+
     // Spawned tasks run in the background, concurrently.
-    spawner.spawn(blink(ws2812)).unwrap();
+    // spawner.spawn(blink(ws2812)).unwrap();
     spawner.spawn(usb_task(usb)).unwrap();
 
     gb_rom_lower_pio.start();
-    // gb_rom_higher_pio.start();
     gb_data_out_pio.start();
+    gb_mbc_commands_pio.start();
     gb_rom_detect_pio.start();
     gb_ram_read_pio.start();
+    gb_ram_write_pio.start();
 
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
@@ -387,10 +399,10 @@ async fn main(spawner: Spawner) {
     let mut current_higher_base_addr: u32 = 0x4000u32;
 
     let _hyperram_gb_dma = GbReadSniffDmaConfig::new(
-        p.DMA_CH6,
-        p.DMA_CH7,
-        p.DMA_CH8,
         p.DMA_CH9,
+        p.DMA_CH10,
+        p.DMA_CH11,
+        p.DMA_CH12,
         &gb_rom_higher_pio,
         &hyperram,
         &hyperram,
@@ -398,7 +410,7 @@ async fn main(spawner: Spawner) {
         ptr::addr_of_mut!(current_higher_base_addr),
     );
 
-    gb_mbc_commands_pio.start();
+    gb_rom_higher_pio.start();
 
     let mut mbc = Mbc1::new(
         gb_mbc_commands_pio.rx_fifo(),
