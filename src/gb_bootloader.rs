@@ -1,3 +1,4 @@
+use cstr_core::{c_char, CStr};
 use defmt::info;
 use embassy_rp::pio::{Instance, StateMachineRx};
 use embedded_hal_1::digital::OutputPin;
@@ -98,6 +99,8 @@ where
                 used_data += filename_len + 1 + 1; // + zero termination + status byte
                 num_roms += 1;
 
+                info!("filename_data: {}", filename_data);
+
                 info!(
                     "{} {} {}",
                     core::str::from_utf8(&filename_data[0..filename_len]).unwrap(),
@@ -116,8 +119,16 @@ where
         let _ = self.reset_pin.set_low();
 
         loop {
-            let _addr = self.rx_fifo.wait_pull().await;
-            let _data = (self.rx_fifo.wait_pull().await & 0xFFu32) as u8;
+            let addr = self.rx_fifo.wait_pull().await;
+            let data = (self.rx_fifo.wait_pull().await & 0xFFu32) as u8;
+
+            if addr == 0x6000u32 && data == 42 {
+                let game_name_mem = &mut self.gb_ram_memory[0x1000..0x1011];
+                info!("game_name_mem {}", game_name_mem);
+                let game_name_cstr =
+                    unsafe { CStr::from_ptr(game_name_mem.as_ptr() as *const c_char) };
+                info!("Selected game: {}", game_name_cstr.to_str().unwrap());
+            }
         }
 
         // let mut file = root_dir

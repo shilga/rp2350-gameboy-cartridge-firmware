@@ -47,11 +47,9 @@
 
 #define ROW_RTC_REAL 12
 
-#define SMEM_ADDR_LED_CONTROL ((UBYTE *)(0xB010))
-#define SMEM_ADDR_RP2040_BOOTLOADER ((UBYTE *)(0xB011))
-#define SMEM_ADDR_GAME_MODE_SELECTOR ((UBYTE *)(0xB000))
-#define SMEM_ADDR_GAME_SELECTOR ((UBYTE *)(0xB001))
-#define SMEM_ADDR_GAME_CONTROL ((UBYTE *)(0xB002))
+#define SMEM_ADDR_GAME_SELECTOR ((UBYTE *)(0xB000))
+
+#define ADDR_BOOTLOADER_CMD_EXEC ((uint8_t *)(0x6000))
 
 #define SMEM_GAME_START_MAGIC 42
 
@@ -129,7 +127,7 @@ struct SharedGameboyData *s_sharedData = (struct SharedGameboyData *)(0xA000);
 
 void sanitizeRTCReal(struct TimePoint *rtc);
 
-void startGame(uint8_t game, uint8_t mode);
+void startGame(uint8_t game);
 
 uint8_t getRomInfoByteForIndex(uint8_t idx)
 {
@@ -346,7 +344,7 @@ uint8_t drawscreenGameMenu(void)
             }
             else
             {
-                startGame(gCursor, 0xff);
+                startGame(gCursor);
             }
         }
 
@@ -373,7 +371,7 @@ uint8_t drawscreenSystemInfo(void)
         printf("Started RP2040 BTLD");
         wait_vbl_done();
         disable_interrupts();
-        *SMEM_ADDR_RP2040_BOOTLOADER = 1;
+        // *SMEM_ADDR_RP2040_BOOTLOADER = 1;
         wait_vbl_done();
         while (1)
         {
@@ -414,16 +412,13 @@ uint8_t drawscreenRGBTester(void)
 
     if (buttonPressed(J_A))
     {
-        *SMEM_ADDR_LED_CONTROL = gCursor;
     }
     else if (buttonPressed(J_SELECT))
     {
-        *SMEM_ADDR_LED_CONTROL = 0;
         return MENU_GAME_MENU;
     }
     else if (buttonPressed(J_LEFT))
     {
-        *SMEM_ADDR_LED_CONTROL = 0;
         return MENU_SYSTEM_INFO;
     }
 
@@ -469,7 +464,7 @@ uint8_t drawscreenGameSettingsSavegameHook(void)
         }
         else
         {
-            startGame(gLastSelectedGame, gCursor);
+            startGame(gLastSelectedGame);
         }
     }
 
@@ -552,7 +547,7 @@ uint8_t drawscreenGameSettingsRTC(void)
 
     if (gameStart)
     {
-        startGame(gLastSelectedGame, gSelectedMode);
+        startGame(gLastSelectedGame);
     }
 
     if (gForceDrawScreen)
@@ -678,6 +673,8 @@ void main(void)
         OBP1_REG = DMG_TILE_SELECTED_PALETTE;
     }
 
+    memset(SMEM_ADDR_GAME_SELECTOR, 42, 16); // TODO: Figure out, why first RAM write is not working correctly
+
     font_init();
     // use pallete 2 as background as sprites have transparent background
     font_color(3, 2);
@@ -764,12 +761,12 @@ void sanitizeRTCReal(struct TimePoint *rtc)
         rtc->Minute = 59;
 }
 
-void startGame(uint8_t game, uint8_t mode)
+void startGame(uint8_t game)
 {
-    *SMEM_ADDR_GAME_MODE_SELECTOR = mode;
-    *SMEM_ADDR_GAME_SELECTOR = game;
+    const char *game_name = getRomNameForIndex(game);
+    memcpy(SMEM_ADDR_GAME_SELECTOR, game_name, strlen(game_name) + 1);
     DISPLAY_OFF;
-    *SMEM_ADDR_GAME_CONTROL = SMEM_GAME_START_MAGIC;
+    *ADDR_BOOTLOADER_CMD_EXEC = SMEM_GAME_START_MAGIC;
     while (1)
     {
         vsync();

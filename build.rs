@@ -16,12 +16,16 @@ fn main() {
     let mut gbdk_lcc = PathBuf::from(std::env::var_os("GBDK_PATH").unwrap());
     gbdk_lcc.push("bin/lcc");
 
-    let lcc_status = Command::new(gbdk_lcc).args(&["-Wa-l", "-Wl-m", "-Wl-j", "-Wm-p", "-Wm-yc", "-Wm-yt2", "-Wm-ya1", "-o"])
+    let lcc_status = Command::new(gbdk_lcc)
+        .args(&[
+            "-Wa-l", "-Wl-m", "-Wl-j", "-Wm-p", "-Wm-yc", "-Wm-yt2", "-Wm-ya1", "-o",
+        ])
         .arg(out.join("bootloader.gb"))
         .arg(gb_bootloader_dir.join("bootloader.c"))
         .arg(gb_bootloader_dir.join("giraffe_4color_data.c"))
         .arg(gb_bootloader_dir.join("giraffe_4color_map.c"))
-        .status().expect("failed to execute lcc");
+        .status()
+        .expect("failed to execute lcc");
 
     assert!(lcc_status.success());
 
