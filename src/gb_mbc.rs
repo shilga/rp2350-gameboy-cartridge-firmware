@@ -2,6 +2,18 @@ use embassy_rp::pio::{Instance, StateMachineRx};
 
 use core::ptr::{self, NonNull};
 
+pub trait Mbc {
+    fn run(&mut self);
+}
+
+pub struct NoMbc {}
+
+impl Mbc for NoMbc {
+    fn run(&mut self) {
+        loop {}
+    }
+}
+
 pub struct Mbc1<'a, 'd, PIO: Instance, const SM: usize> {
     rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
     current_rom_bank_pointer: NonNull<u32>,
@@ -15,8 +27,10 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc1<'a, 'd, PIO, SM> {
             current_rom_bank_pointer,
         }
     }
+}
 
-    pub fn run(&mut self) {
+impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc1<'a, 'd, PIO, SM> {
+    fn run(&mut self) {
         let mut rom_bank = 1u8;
         let mut rom_bank_new: u8;
         let mut rom_bank_high = 0u8;

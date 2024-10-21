@@ -24,13 +24,14 @@ use embassy_embedded_hal::SetConfig;
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Config, UsbDevice};
 
-use embassy_time::{Instant, Timer};
+use embassy_time::Timer;
 
 use embedded_io::{ErrorType, Write};
 
 use embedded_sdmmc::sdcard::SdCard;
 
 use gb_pio::GbRamRead;
+use rom_info::MbcType;
 use smart_leds::RGB8;
 
 use core::ptr;
@@ -58,12 +59,14 @@ mod gb_dma;
 use gb_dma::{GbReadDmaConfig, GbReadSniffDmaConfig, GbWriteDmaConfig};
 
 mod gb_mbc;
-use gb_mbc::Mbc1;
+use gb_mbc::{Mbc, Mbc1, NoMbc};
 
 mod hyperram;
 use hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
 
 mod dma_helper;
+
+mod rom_info;
 
 #[link_section = ".start_block"]
 #[used]
@@ -344,7 +347,7 @@ async fn main(spawner: Spawner) {
         p.PIN_14, p.PIN_15, p.PIN_16,
     );
 
-    {
+    let rom_info = {
         let mut hyperram = HyperRam::new(&mut pio2, &mut sm2_0, &hyperrampins);
 
         hyperram.init();
@@ -367,8 +370,8 @@ async fn main(spawner: Spawner) {
             &mut hyperram,
         );
 
-        gb_bootloader.run().await;
-    }
+        gb_bootloader.run().await
+    };
 
     let mut hyperram = HyperRamReadOnly::new(&mut pio2, &pac::PIO2, sm2_0, hyperrampins);
     let dat = hyperram.read_blocking(0x100u32);
@@ -397,10 +400,16 @@ async fn main(spawner: Spawner) {
 
     gb_rom_higher_pio.start();
 
-    let mut mbc = Mbc1::new(
-        gb_mbc_commands_pio.rx_fifo(),
-        ptr::addr_of_mut!(current_higher_base_addr),
-    );
+    let mbc: &mut dyn Mbc = match rom_info.mbc {
+        MbcType::None => &mut NoMbc {},
+        MbcType::Mbc1 => &mut Mbc1::new(
+            gb_mbc_commands_pio.rx_fifo(),
+            ptr::addr_of_mut!(current_higher_base_addr),
+        ),
+        _ => {
+            panic!("unimplemented MBC");
+        }
+    };
 
     cortex_m::interrupt::disable();
 

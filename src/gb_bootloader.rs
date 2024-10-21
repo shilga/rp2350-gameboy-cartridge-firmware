@@ -1,4 +1,5 @@
 use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
+use crate::rom_info::RomInfo;
 use cstr_core::{c_char, CStr};
 use defmt::info;
 use embassy_rp::pio::{Instance, StateMachineRx};
@@ -69,7 +70,7 @@ where
         }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> RomInfo {
         // load the bootloader binary
         let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/bootloader.gb"));
         self.gb_rom_memory[..bytes.len()].copy_from_slice(bytes);
@@ -145,7 +146,7 @@ where
         let bank0 = unsafe { core::slice::from_raw_parts_mut(ptr, 0x4000usize) };
         let temp_bank0 =
             unsafe { core::slice::from_raw_parts_mut(ptr.add(0x4000usize), 0x4000usize) };
-        let temp_bank1 =
+        let _temp_bank1 =
             unsafe { core::slice::from_raw_parts_mut(ptr.add(0x8000usize), 0x4000usize) };
 
         let read_start_time = Instant::now();
@@ -158,6 +159,8 @@ where
             .unwrap();
         let rom_length = file.length();
         let _ = file.read(bank0).unwrap();
+
+        let rom_info = RomInfo::from_rom_bytes(bank0).unwrap();
 
         let mut addr = 0x4000u32;
         while addr < rom_length {
@@ -172,5 +175,7 @@ where
             rom_length,
             read_duration.as_millis()
         );
+
+        rom_info
     }
 }
