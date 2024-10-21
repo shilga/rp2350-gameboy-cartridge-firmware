@@ -339,18 +339,6 @@ async fn main(spawner: Spawner) {
     // To do this we need a Volume Manager. It will take ownership of the block device.
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, DummyTimesource());
 
-    {
-        let mut gb_bootloader = GbBootloader::new(
-            &mut volume_mgr,
-            gb_mbc_commands_pio.rx_fifo(),
-            gb_rom,
-            gb_save_ram,
-            &mut reset_pin,
-        );
-
-        gb_bootloader.run().await;
-    }
-
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
         p.PIN_14, p.PIN_15, p.PIN_16,
@@ -370,19 +358,16 @@ async fn main(spawner: Spawner) {
             id0, id1, cfg0, cfg1
         );
 
-        let write_start_time = Instant::now();
-        hyperram.write_blocking(0x4000, &gb_rom[0x4000..0x8000]);
-        let write_duration = write_start_time.elapsed();
-        info!("Writing took {}", write_duration);
-        let mut test_read: [u8; 16] = [0; 16];
-        hyperram.read_blocking(0x100u32, &mut test_read);
-        info!("test_read: {}", test_read);
-        let mut test_read2: [u8; 16] = [0; 16];
-        hyperram.read_blocking(0x5700u32, &mut test_read2);
-        info!("test_read2: {}", test_read2);
+        let mut gb_bootloader = GbBootloader::new(
+            &mut volume_mgr,
+            gb_mbc_commands_pio.rx_fifo(),
+            gb_rom,
+            gb_save_ram,
+            &mut reset_pin,
+            &mut hyperram,
+        );
 
-        hyperram.write_blocking(0x8000, &gb_rom[0x8000..0xC000]);
-        hyperram.write_blocking(0xC000, &gb_rom[0xC000..]);
+        gb_bootloader.run().await;
     }
 
     let mut hyperram = HyperRamReadOnly::new(&mut pio2, &pac::PIO2, sm2_0, hyperrampins);

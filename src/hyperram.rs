@@ -7,6 +7,7 @@ use embassy_rp::{
         Common, Config, Instance, InstanceMemory, Pin, PioPin, ShiftConfig, ShiftDirection,
         StateMachine,
     },
+    rom_data::flash_runtime_to_storage_addr,
 };
 
 pub const ID0: u32 = 0u32 << 12 | 0u32 << 1;
@@ -20,6 +21,10 @@ enum CmdFlags {
     Write = 0x20,
     RegWrite = 0x40,
     RegRead = 0xC0,
+}
+
+pub trait WriteBlocking {
+    fn write_blocking(&mut self, addr: u32, data: &[u8]);
 }
 
 pub struct HyperRamPins<'d, P: Instance> {
@@ -293,6 +298,12 @@ impl<'a, 'd, P: Instance, const S: usize> Drop for HyperRam<'a, 'd, P, S> {
         unsafe {
             self.pio.free_instr(self.used_memory.take().unwrap());
         }
+    }
+}
+
+impl<'a, 'd, P: Instance, const S: usize> WriteBlocking for HyperRam<'a, 'd, P, S> {
+    fn write_blocking(&mut self, addr: u32, data: &[u8]) {
+        self.write_blocking(addr, data);
     }
 }
 

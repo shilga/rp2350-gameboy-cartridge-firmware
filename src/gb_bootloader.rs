@@ -1,6 +1,8 @@
+use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
 use cstr_core::{c_char, CStr};
 use defmt::info;
 use embassy_rp::pio::{Instance, StateMachineRx};
+use embassy_time::Instant;
 use embedded_hal_1::digital::OutputPin;
 use embedded_sdmmc::{BlockDevice, TimeSource, VolumeManager};
 
@@ -27,6 +29,7 @@ pub struct GbBootloader<
     gb_rom_memory: &'a mut [u8],
     gb_ram_memory: &'a mut [u8],
     reset_pin: &'a mut Pin,
+    hyperram: &'a mut dyn HyperRamWriteBlocking,
 }
 
 impl<
@@ -54,6 +57,7 @@ where
         gb_rom_memory: &'a mut [u8],
         gb_ram_memory: &'a mut [u8],
         reset_pin: &'a mut Pin,
+        hyperram: &'a mut dyn HyperRamWriteBlocking,
     ) -> GbBootloader<'a, 'd, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES, PIO, SM, Pin, PinError> {
         Self {
             volume_mgr,
@@ -61,6 +65,7 @@ where
             gb_rom_memory,
             gb_ram_memory,
             reset_pin,
+            hyperram,
         }
     }
 
@@ -118,6 +123,8 @@ where
 
         let _ = self.reset_pin.set_low();
 
+        let game_name_cstr;
+
         loop {
             let addr = self.rx_fifo.wait_pull().await;
             let data = (self.rx_fifo.wait_pull().await & 0xFFu32) as u8;
@@ -125,22 +132,45 @@ where
             if addr == 0x6000u32 && data == 42 {
                 let game_name_mem = &mut self.gb_ram_memory[0x1000..0x1011];
                 info!("game_name_mem {}", game_name_mem);
-                let game_name_cstr =
-                    unsafe { CStr::from_ptr(game_name_mem.as_ptr() as *const c_char) };
+                game_name_cstr = unsafe { CStr::from_ptr(game_name_mem.as_ptr() as *const c_char) };
                 info!("Selected game: {}", game_name_cstr.to_str().unwrap());
+
+                break;
             }
         }
 
-        // let mut file = root_dir
-        //     .open_file_in_dir("MARIO.GB", embedded_sdmmc::Mode::ReadOnly)
-        //     .unwrap();
-        // let read_start_time = Instant::now();
-        // let num_read = file.read(gb_rom).unwrap();
-        // let read_duration = read_start_time.elapsed();
-        // info!(
-        //     "Read {} bytes in {} ms",
-        //     num_read,
-        //     read_duration.as_millis()
-        // );
+        let _ = self.reset_pin.set_high();
+
+        let ptr = self.gb_rom_memory.as_mut_ptr();
+        let bank0 = unsafe { core::slice::from_raw_parts_mut(ptr, 0x4000usize) };
+        let temp_bank0 =
+            unsafe { core::slice::from_raw_parts_mut(ptr.add(0x4000usize), 0x4000usize) };
+        let temp_bank1 =
+            unsafe { core::slice::from_raw_parts_mut(ptr.add(0x8000usize), 0x4000usize) };
+
+        let read_start_time = Instant::now();
+
+        let mut file = root_dir
+            .open_file_in_dir(
+                game_name_cstr.to_str().unwrap(),
+                embedded_sdmmc::Mode::ReadOnly,
+            )
+            .unwrap();
+        let rom_length = file.length();
+        let _ = file.read(bank0).unwrap();
+
+        let mut addr = 0x4000u32;
+        while addr < rom_length {
+            let _ = file.read(temp_bank0).unwrap();
+            self.hyperram.write_blocking(addr, temp_bank0);
+            addr += 0x4000u32;
+        }
+
+        let read_duration = read_start_time.elapsed();
+        info!(
+            "Read {} bytes in {} ms",
+            rom_length,
+            read_duration.as_millis()
+        );
     }
 }
