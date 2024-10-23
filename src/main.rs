@@ -7,15 +7,17 @@
 #![no_std]
 #![no_main]
 
-use embassy_executor::Spawner;
-use embassy_rp::gpio::{Level, Output};
+use embassy_executor::{Executor, Spawner};
+use embassy_rp::block::ImageDef;
+use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
+use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::peripherals::{PIN_46, USB};
 use embassy_rp::peripherals::{PIO0, PIO1, PIO2, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
+use embassy_rp::uart::UartTx;
 use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_rp::{bind_interrupts, spi};
-use embassy_rp::{block::ImageDef, uart::UartTx};
 use embassy_rp::{clocks, config as rpconfig, pac};
 use embedded_hal_bus::spi::ExclusiveDevice;
 
@@ -36,7 +38,7 @@ use smart_leds::RGB8;
 
 use core::ptr;
 
-use defmt::info;
+use defmt::{info, unwrap};
 use {defmt_serial as _, panic_probe as _};
 
 use static_cell::StaticCell;
@@ -126,6 +128,9 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
         }
     }
 }
+
+static mut CORE1_STACK: Stack<4096> = Stack::new();
+static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
 extern "C" {
     static mut _s_gb_rom_memory: u8;
@@ -338,6 +343,15 @@ async fn main(spawner: Spawner) {
     config.frequency = 16_000_000;
     sdcard.spi(|dev| dev.bus_mut().set_config(&config)).ok();
 
+    spawn_core1(
+        p.CORE1,
+        unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+        move || {
+            let executor1 = EXECUTOR1.init(Executor::new());
+            executor1.run(|spawner| unwrap!(spawner.spawn(core1_task(p.PIN_4.into()))));
+        },
+    );
+
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.
     let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, DummyTimesource());
@@ -463,4 +477,15 @@ type MyUsbDevice = UsbDevice<'static, MyUsbDriver>;
 #[embassy_executor::task]
 async fn usb_task(mut usb: MyUsbDevice) -> ! {
     usb.run().await
+}
+
+#[embassy_executor::task]
+async fn core1_task(button: AnyPin) {
+    let mut async_input = Input::new(button, Pull::Up);
+
+    loop {
+        info!("Hello from core 1");
+        async_input.wait_for_high().await;
+        async_input.wait_for_low().await;
+    }
 }
