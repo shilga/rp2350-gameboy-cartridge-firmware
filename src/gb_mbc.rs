@@ -181,3 +181,97 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
         }
     }
 }
+
+pub struct Mbc5<'a, 'd, PIO: Instance, const SM: usize> {
+    rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
+    current_rom_bank_pointer: NonNull<u32>,
+    current_ram_bank_pointer: NonNull<*mut u8>,
+    gb_ram_memory: &'a mut [u8],
+}
+
+impl<'a, 'd, PIO: Instance, const SM: usize> Mbc5<'a, 'd, PIO, SM> {
+    pub fn new(
+        rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
+        current_rom_bank: *mut u32,
+        ram_bank_pointer: *mut *mut u8,
+        gb_ram_memory: &'a mut [u8],
+    ) -> Self {
+        let current_rom_bank_pointer = NonNull::new(current_rom_bank).unwrap();
+        let current_ram_bank_pointer = NonNull::new(ram_bank_pointer).unwrap();
+        Self {
+            rx_fifo,
+            current_rom_bank_pointer,
+            current_ram_bank_pointer,
+            gb_ram_memory,
+        }
+    }
+}
+
+impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc5<'a, 'd, PIO, SM> {
+    fn run(&mut self) {
+        let mut rom_bank = 1u16;
+        let mut rom_bank_new = 1u16;
+        let mut ram_enabled = false;
+        let mut ram_enabled_new = false;
+        let mut ram_bank = 1u8;
+        let mut ram_bank_new = 1u8;
+
+        let rom_bank_mask = 0x1FFu16;
+        let ram_bank_mask = 0x0Fu8;
+
+        loop {
+            while self.rx_fifo.empty() {}
+            let addr = self.rx_fifo.pull();
+            while self.rx_fifo.empty() {}
+            let data = (self.rx_fifo.pull() & 0xFFu32) as u8;
+
+            match addr & 0xF000u32 {
+                0x0000u32 | 0x1000u32 => {
+                    ram_enabled_new = data & 0xF == 0xAA;
+                }
+                0x2000u32 => {
+                    rom_bank_new = (rom_bank & 0x0100) | data as u16;
+                }
+                0x3000u32 => {
+                    rom_bank_new = (rom_bank & 0x00FF) | (((data as u16) << 8) & 0x0100);
+                }
+                0x4000u32 => {
+                    ram_bank_new = data & 0x0F;
+                }
+                _ => {}
+            }
+
+            rom_bank_new = rom_bank_new & rom_bank_mask;
+            ram_bank_new = ram_bank_new & ram_bank_mask;
+
+            if rom_bank != rom_bank_new {
+                rom_bank = rom_bank_new;
+                unsafe {
+                    ptr::write_volatile(
+                        self.current_rom_bank_pointer.as_ptr(),
+                        rom_bank as u32 * 0x4000u32,
+                    )
+                };
+            }
+
+            if ram_enabled != ram_enabled_new {
+                ram_enabled = ram_enabled_new;
+
+                // todo: enable/disable ram access
+            }
+
+            if ram_bank != ram_bank_new {
+                ram_bank = ram_bank_new;
+
+                unsafe {
+                    ptr::write_volatile(
+                        self.current_ram_bank_pointer.as_ptr(),
+                        self.gb_ram_memory
+                            .as_mut_ptr()
+                            .add((ram_bank & 0x03) as usize * 0x2000usize),
+                    )
+                }
+            }
+        }
+    }
+}

@@ -59,7 +59,7 @@ mod gb_dma;
 use gb_dma::{GbReadDmaConfig, GbReadSniffDmaConfig, GbWriteDmaConfig};
 
 mod gb_mbc;
-use gb_mbc::{Mbc, Mbc1, Mbc3, NoMbc};
+use gb_mbc::{Mbc, Mbc1, Mbc3, Mbc5, NoMbc};
 
 mod hyperram;
 use hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
@@ -407,6 +407,12 @@ async fn main(spawner: Spawner) {
             ptr::addr_of_mut!(current_higher_base_addr),
         ),
         MbcType::Mbc3 => &mut Mbc3::new(
+            gb_mbc_commands_pio.rx_fifo(),
+            ptr::addr_of_mut!(current_higher_base_addr),
+            ptr::addr_of_mut!(gb_ram_ptr),
+            gb_save_ram,
+        ),
+        MbcType::Mbc5 => &mut Mbc5::new(
             gb_mbc_commands_pio.rx_fifo(),
             ptr::addr_of_mut!(current_higher_base_addr),
             ptr::addr_of_mut!(gb_ram_ptr),
