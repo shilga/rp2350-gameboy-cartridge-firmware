@@ -4,8 +4,7 @@ use embassy_rp::{
     gpio::{Drive, SlewRate},
     pac,
     pio::{
-        Common, Config, Instance, InstanceMemory, Pin, PioPin, ShiftConfig, ShiftDirection,
-        StateMachine,
+        Common, Config, Direction, Instance, InstanceMemory, Pin, PioPin, ShiftConfig, ShiftDirection, StateMachine
     },
     rom_data::flash_runtime_to_storage_addr,
 };
@@ -323,7 +322,7 @@ impl<'d, P: Instance, const S: usize> HyperRamReadOnly<'d, P, S> {
 
         let mut cfg = Config::default();
 
-        cfg.set_set_pins(&pins.ctrl_pins.each_ref());
+        cfg.set_set_pins(&[&pins.ctrl_pins[2]]);
         cfg.set_in_pins(&pins.dq_pins.each_ref());
         cfg.set_out_pins(&pins.dq_pins.each_ref());
         cfg.set_jmp_pin(&pins.ctrl_pins[0]);
@@ -344,6 +343,9 @@ impl<'d, P: Instance, const S: usize> HyperRamReadOnly<'d, P, S> {
         cfg.use_program(&lprogram, &[&pins.ctrl_pins[1]]);
 
         sm.set_config(&cfg);
+
+        sm.set_pin_dirs(Direction::Out, &[&pins.ctrl_pins[1], &pins.ctrl_pins[2]]);
+        sm.set_pin_dirs(Direction::In, &[&pins.ctrl_pins[0]]);
 
         sm.set_enable(true);
 

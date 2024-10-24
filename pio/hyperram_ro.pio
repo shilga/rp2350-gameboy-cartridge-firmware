@@ -23,11 +23,10 @@ public start:
     mov  osr ~null                    ; OSR=FFFFFFFF
     out pindirs, 8                   ; Set CMD/Data pins direction, this prepares the pins to always output CA47..40 while we are waiting for the actual command
     pull block                        ; Wait for the read command and receive the addr
-    set pins, 0b000       side 0b0       ; Enable chip select
-    set pindirs, 0b110    side 0b0 [1]   ; Make RWDS pin input, CS and CLK output
+    set pins, 0b0       side 0b0       ; Enable chip select
 
 adr:
-    nop                  side 0b1
+    nop                  side 0b1 ; first clk, the initial part of CA was already prepared. The HyperRAM will just sample it now
     out pins, 12                      ; Shift 12 bits here, this moves the 32bit addr into the right position. I would be 13 bits, but the RAM addresses in words (16 bit)
     nop                  side 0b0
     out pins, 8  
@@ -52,5 +51,5 @@ r_data:
     nop [2]
     in pins, 8            
 
-    set pins, 0b100       side 0b0        ; Deselect part, idle clock
+    set pins, 0b1       side 0b0        ; Deselect part, idle clock
 
