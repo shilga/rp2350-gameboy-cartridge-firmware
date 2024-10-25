@@ -4,9 +4,9 @@ use embassy_rp::{
     gpio::{Drive, SlewRate},
     pac,
     pio::{
-        Common, Config, Direction, Instance, InstanceMemory, Pin, PioPin, ShiftConfig, ShiftDirection, StateMachine
+        Common, Config, Direction, Instance, InstanceMemory, Pin, PioPin, ShiftConfig,
+        ShiftDirection, StateMachine,
     },
-    rom_data::flash_runtime_to_storage_addr,
 };
 
 pub const ID0: u32 = 0u32 << 12 | 0u32 << 1;
@@ -279,9 +279,9 @@ impl<'a, 'd, P: Instance, const S: usize> HyperRam<'a, 'd, P, S> {
             //(0x0u << 12) | // Default drive strength (34R)
             //(0x5u << 12) | // 27R drive strength
             (0x7u16 << 12) | // 19R drive strength
-            (0xeu16 << 4)  | // 3 latency cycles (in bias -5 format)
+            //(0xeu16 << 4)  | // 3 latency cycles (in bias -5 format)
             //(0xfu << 4)  | // 4 latency cycles (in bias -5 format)
-            //(0x0u << 4)  | // 5 latency cycles (in bias -5 format)
+            (0x0u16 << 4)  | // 5 latency cycles (in bias -5 format)
             //(0x1u << 4)  | // 6 latency cycles (in bias -5 format)
             //(0x2u << 4)  | // Default 7 latency cycles (in bias -5 format)
             (0x1u16 << 3); // Fixed 2x latency mode

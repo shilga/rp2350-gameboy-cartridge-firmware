@@ -130,6 +130,8 @@ where
             let addr = self.rx_fifo.wait_pull().await;
             let data = (self.rx_fifo.wait_pull().await & 0xFFu32) as u8;
 
+            info!("Addr {:#x} data {:#x}", addr, data);
+
             if addr == 0x6000u32 && data == 42 {
                 let game_name_mem = &mut self.gb_ram_memory[0x1000..0x1011];
                 info!("game_name_mem {}", game_name_mem);

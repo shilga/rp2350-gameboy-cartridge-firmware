@@ -34,6 +34,7 @@ use embedded_sdmmc::sdcard::SdCard;
 
 use gb_pio::GbRamRead;
 use rom_info::MbcType;
+use rp2350_core_voltage::vreg_set_voltage;
 use smart_leds::RGB8;
 
 use core::ptr;
@@ -69,6 +70,8 @@ use hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
 mod dma_helper;
 
 mod rom_info;
+
+mod rp2350_core_voltage;
 
 #[link_section = ".start_block"]
 #[used]
@@ -141,15 +144,32 @@ extern "C" {
 async fn main(spawner: Spawner) {
     embassy_rp::pac::SIO.spinlock(31).write_value(1);
     let mut rp_config = rpconfig::Config::default();
-    rp_config
+    let pll_config = rp_config
         .clocks
         .xosc
         .as_mut()
         .unwrap()
         .sys_pll
         .as_mut()
-        .unwrap()
-        .post_div1 = 5;
+        .unwrap();
+
+    vreg_set_voltage(rp2350_core_voltage::VregVoltage::VregVoltage1_15);
+
+    // 150 MHz config
+    // pll_config.fbdiv = 125; // VCO 1500 MHz
+    // pll_config.post_div1 = 5;
+    // pll_config.post_div2 = 2;
+
+    // 200 MHz config
+    // pll_config.fbdiv = 100; // VCO 1200 MHz
+    // pll_config.post_div1 = 6;
+    // pll_config.post_div2 = 1;
+
+    // 266 MHz config
+    pll_config.fbdiv = 133; // VCO 1596 MHz
+    pll_config.post_div1 = 6;
+    pll_config.post_div2 = 1;
+
     let p = embassy_rp::init(rp_config);
     let config = uart::Config::default();
     let uart = uart::UartTx::new_blocking(p.UART0, p.PIN_46, config);
@@ -388,10 +408,10 @@ async fn main(spawner: Spawner) {
     };
 
     let mut hyperram = HyperRamReadOnly::new(&mut pio2, &pac::PIO2, sm2_0, hyperrampins);
-    let dat = hyperram.read_blocking(0x100u32);
-    let dat2 = hyperram.read_blocking(0x105u32);
-    let dat3 = hyperram.read_blocking(0x1208u32);
-    let dat4 = hyperram.read_blocking(0x1209u32);
+    let dat = hyperram.read_blocking(0x4100u32);
+    let dat2 = hyperram.read_blocking(0x4105u32);
+    let dat3 = hyperram.read_blocking(0x5208u32);
+    let dat4 = hyperram.read_blocking(0x5209u32);
     let dat5 = hyperram.read_blocking(0x6707u32);
     info!(
         "dat {:#x} dat2 {:#x} dat3 {:#x} dat4 {:#x} dat5 {:#x}",

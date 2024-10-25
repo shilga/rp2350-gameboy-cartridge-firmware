@@ -69,13 +69,13 @@ idle:
 on_write:
     in pins 16 ; shift in all addr pins
     in null 16; fill up with zeros, triggers auto-push
-    wait 0 pin 29 [3] ; wait for clk to become low
+    wait 0 pin 29 [7] ; wait for clk to become low
     in pins 24 ; sample addr pins + data pins
     in null 24 ; fill up with zeroes, shift out addr pins to leave only data, triggers auto push
 .wrap_target
 public entry_point:
-    wait 1 pin 29                     ; wait for clk cycle to end
-    wait 0 pin 15 ; wait for a15 to become low
+    wait 1 pin 29 [1]                    ; wait for clk cycle to end
+    wait 0 pin 15 [1] ; wait for a15 to become low
     jmp pin on_write ; on reads back to idle
     wait 0 pin 29 ; wait for clk to become low
     .wrap ; wrap back to beginning
@@ -88,8 +88,8 @@ public entry_point:                                     ; *** Default Entry Poin
     set x 5 ; set compare value
 .wrap_target
 idle:
-    wait 1 pin 29                     ; wait for clk cycle to end
-    wait 0 pin 31                     ; wait for cs to become low
+    wait 1 pin 29 [1]                    ; wait for clk cycle to end
+    wait 0 pin 31 [1]                     ; wait for cs to become low
 
     in pins 16 ; shift in all addr pins
     in null 29 ; shift A0 to A12 out of isr. A15 is at pos 2 afterwards, A13 at pos 0
@@ -111,7 +111,7 @@ idle:
     wait 1 irq 0
     in pins 13 ; sample A0 to A12 addr pins
     in null 19 ; shift addr to right position and auto-push
-    wait 0 pin 29 [6] ; wait for second half of clk cycle
+    wait 0 pin 29 [7] ; wait for second half of clk cycle
     in pins 24 ; shift in addr pins and data pins
     in null 24 ; shift data pins to right position and auto push
     .wrap

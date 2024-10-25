@@ -11,7 +11,10 @@
 .side_set 1 opt
 
 ; Settings: sysclock 150 MHz, clkdiv = 1, initial lat = 3;
-.define LATENCY 5
+; .define LATENCY 5 
+
+; Settings: sysclock 150 MHz, clkdiv = 1, initial lat = 5;
+.define LATENCY 9 
 
 public start:
     set y, LATENCY       side 0b0       ; Assume maximum latency 
@@ -48,7 +51,7 @@ lat_cnt:
     nop                  side 0b0 [1]   ; add an additional clk transition if addr was odd
 
 r_data:
-    nop [2]
+    nop [3]
     in pins, 8            
 
     set pins, 0b1       side 0b0        ; Deselect part, idle clock

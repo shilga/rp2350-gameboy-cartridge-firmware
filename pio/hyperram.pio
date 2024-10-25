@@ -11,9 +11,13 @@
 ; Make side sets optional to enable pin sharing with other SMs
 .side_set 1 opt
 
-; Final: 300 MHz, clkdiv = 1, lat = 3;
-.define public LATENCY 4
-.define public LAT_SHORT 1
+; Settings: 150 MHz, clkdiv = 1, lat = 3;
+; .define public LATENCY 4
+; .define public LAT_SHORT 1
+
+; Settings: 266 MHz, clkdiv = 1, lat = 5;
+.define public LATENCY 8
+.define public LAT_SHORT 3
 
 public start:
     set x, 0                            ; Flag for no work
