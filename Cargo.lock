@@ -445,6 +445,7 @@ dependencies = [
 name = "embassy-rp2350-examples"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "cortex-m",
  "cortex-m-rt",
  "cstr_core",

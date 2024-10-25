@@ -1,7 +1,10 @@
+use core::num;
+
 use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
 use crate::rom_info::RomInfo;
+use arrayvec::ArrayString;
 use cstr_core::{c_char, CStr};
-use defmt::info;
+use defmt::{info, warn};
 use embassy_rp::pio::{Instance, StateMachineRx};
 use embassy_time::Instant;
 use embedded_hal_1::digital::OutputPin;
@@ -151,18 +154,21 @@ where
         let _temp_bank1 =
             unsafe { core::slice::from_raw_parts_mut(ptr.add(0x8000usize), 0x4000usize) };
 
+        let game_filename = game_name_cstr.to_str().unwrap();
+        let game_basename = game_filename.split(".").next().unwrap();
+        let mut save_filename = ArrayString::<16>::new();
+        save_filename.push_str(game_basename);
+        save_filename.push_str(".SAV");
+
         let read_start_time = Instant::now();
 
         let mut file = root_dir
-            .open_file_in_dir(
-                game_name_cstr.to_str().unwrap(),
-                embedded_sdmmc::Mode::ReadOnly,
-            )
+            .open_file_in_dir(game_filename, embedded_sdmmc::Mode::ReadOnly)
             .unwrap();
         let rom_length = file.length();
         let _ = file.read(bank0).unwrap();
 
-        let rom_info = RomInfo::from_rom_bytes(bank0).unwrap();
+        let rom_info = RomInfo::from_rom_bytes(bank0, save_filename.as_str()).unwrap();
 
         let mut addr = 0x4000u32;
         while addr < rom_length {
@@ -177,6 +183,31 @@ where
             rom_length,
             read_duration.as_millis()
         );
+
+        file.close().unwrap();
+
+        match root_dir.open_file_in_dir(save_filename.as_str(), embedded_sdmmc::Mode::ReadOnly) {
+            Ok(mut savefile) => {
+                info!("Found and opened savefile");
+
+                match savefile.read(self.gb_ram_memory) {
+                    Ok(num_read) => {
+                        info!("Read {} bytes from savefile", num_read);
+                    }
+                    Err(error) => {
+                        warn!(
+                            "Unable to read from savefile {}",
+                            defmt::Debug2Format(&error)
+                        );
+                    }
+                };
+
+                savefile.close().unwrap();
+            }
+            Err(error) => {
+                warn!("Unable to open savefile {}", defmt::Debug2Format(&error));
+            }
+        }
 
         rom_info
     }

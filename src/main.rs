@@ -31,15 +31,16 @@ use embassy_time::Timer;
 use embedded_io::{ErrorType, Write};
 
 use embedded_sdmmc::sdcard::SdCard;
+use embedded_sdmmc::VolumeManager;
 
 use gb_pio::GbRamRead;
-use rom_info::MbcType;
+use rom_info::{MbcType, RomInfo};
 use rp2350_core_voltage::vreg_set_voltage;
 use smart_leds::RGB8;
 
-use core::ptr;
+use core::{ptr, str};
 
-use defmt::{info, unwrap};
+use defmt::{info, unwrap, warn};
 use {defmt_serial as _, panic_probe as _};
 
 use static_cell::StaticCell;
@@ -131,6 +132,21 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
         }
     }
 }
+
+type VolumeManagerType<'d> = VolumeManager<
+    SdCard<
+        ExclusiveDevice<
+            spi::Spi<'d, embassy_rp::peripherals::SPI0, spi::Blocking>,
+            Output<'d>,
+            embedded_hal_bus::spi::NoDelay,
+        >,
+        embassy_time::Delay,
+    >,
+    DummyTimesource,
+>;
+static mut VOLUME_MANAGER: StaticCell<VolumeManagerType> = StaticCell::new();
+
+static LOADED_ROM_INFO: StaticCell<RomInfo> = StaticCell::new();
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
@@ -303,6 +319,7 @@ async fn main(spawner: Spawner) {
 
     let mut gb_rom_ptr = unsafe { ptr::addr_of_mut!(_s_gb_rom_memory) };
     let mut gb_ram_ptr = unsafe { ptr::addr_of_mut!(_s_gb_save_ram) };
+    let mut current_higher_base_addr: u32 = 0x4000u32;
 
     let _read_dma_lower = GbReadDmaConfig::new(
         p.DMA_CH0,
@@ -363,25 +380,21 @@ async fn main(spawner: Spawner) {
     config.frequency = 16_000_000;
     sdcard.spi(|dev| dev.bus_mut().set_config(&config)).ok();
 
-    spawn_core1(
-        p.CORE1,
-        unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
-        move || {
-            let executor1 = EXECUTOR1.init(Executor::new());
-            executor1.run(|spawner| unwrap!(spawner.spawn(core1_task(p.PIN_4.into()))));
-        },
-    );
-
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.
-    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, DummyTimesource());
+    let volume_mgr = unsafe {
+        VOLUME_MANAGER.init(embedded_sdmmc::VolumeManager::new(
+            sdcard,
+            DummyTimesource(),
+        ))
+    };
 
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
         p.PIN_14, p.PIN_15, p.PIN_16,
     );
 
-    let rom_info = {
+    let rom_info = LOADED_ROM_INFO.init({
         let mut hyperram = HyperRam::new(&mut pio2, &mut sm2_0, &hyperrampins);
 
         hyperram.init();
@@ -396,7 +409,7 @@ async fn main(spawner: Spawner) {
         );
 
         let mut gb_bootloader = GbBootloader::new(
-            &mut volume_mgr,
+            volume_mgr,
             gb_mbc_commands_pio.rx_fifo(),
             gb_rom,
             gb_save_ram,
@@ -405,7 +418,7 @@ async fn main(spawner: Spawner) {
         );
 
         gb_bootloader.run().await
-    };
+    });
 
     volume_mgr.device().spi(|dev| {
         dev.bus_mut().blocking_write(&[0xFF; 2]).unwrap();
@@ -421,22 +434,6 @@ async fn main(spawner: Spawner) {
         "dat {:#x} dat2 {:#x} dat3 {:#x} dat4 {:#x} dat5 {:#x}",
         dat, dat2, dat3, dat4, dat5
     );
-
-    let mut current_higher_base_addr: u32 = 0x4000u32;
-
-    let _hyperram_gb_dma = GbReadSniffDmaConfig::new(
-        p.DMA_CH9,
-        p.DMA_CH10,
-        p.DMA_CH11,
-        p.DMA_CH12,
-        &gb_rom_higher_pio,
-        &hyperram,
-        &hyperram,
-        &gb_data_out_pio,
-        ptr::addr_of_mut!(current_higher_base_addr),
-    );
-
-    gb_rom_higher_pio.start();
 
     let mbc: &mut dyn Mbc = match rom_info.mbc {
         MbcType::None => &mut NoMbc {},
@@ -460,6 +457,44 @@ async fn main(spawner: Spawner) {
             panic!("unimplemented MBC");
         }
     };
+
+    if rom_info.ram_bank_count > 0 {
+        spawn_core1(
+            p.CORE1,
+            unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+            move || {
+                let executor1 = EXECUTOR1.init(Executor::new());
+                let gb_save_ram = unsafe {
+                    core::slice::from_raw_parts(
+                        ptr::addr_of!(_s_gb_save_ram) as *mut u8,
+                        rom_info.ram_bank_count as usize * 0x2000usize,
+                    )
+                };
+                executor1.run(|spawner| {
+                    unwrap!(spawner.spawn(core1_task(
+                        p.PIN_4.into(),
+                        volume_mgr,
+                        rom_info,
+                        gb_save_ram
+                    )))
+                });
+            },
+        );
+    }
+
+    let _hyperram_gb_dma = GbReadSniffDmaConfig::new(
+        p.DMA_CH9,
+        p.DMA_CH10,
+        p.DMA_CH11,
+        p.DMA_CH12,
+        &gb_rom_higher_pio,
+        &hyperram,
+        &hyperram,
+        &gb_data_out_pio,
+        ptr::addr_of_mut!(current_higher_base_addr),
+    );
+
+    gb_rom_higher_pio.start();
 
     cortex_m::interrupt::disable();
 
@@ -504,12 +539,55 @@ async fn usb_task(mut usb: MyUsbDevice) -> ! {
 }
 
 #[embassy_executor::task]
-async fn core1_task(button: AnyPin) {
-    let mut async_input = Input::new(button, Pull::Up);
+async fn core1_task(
+    button_pin: AnyPin,
+    volume_mgr: &'static mut VolumeManagerType<'_>,
+    rom_info: &'static RomInfo,
+    saveram_memory: &'static [u8],
+) {
+    let mut async_input = Input::new(button_pin, Pull::Up);
+    let saveram_filename = rom_info.savefile.as_str();
+
+    info!("Core1 got saveram_filename {}", saveram_filename);
+
+    let mut volume0 = volume_mgr
+        .open_volume(embedded_sdmmc::VolumeIdx(0))
+        .unwrap();
+    let mut root_dir = volume0.open_root_dir().unwrap();
 
     loop {
         info!("Hello from core 1");
         async_input.wait_for_high().await;
         async_input.wait_for_low().await;
+
+        match root_dir.open_file_in_dir(
+            saveram_filename,
+            embedded_sdmmc::Mode::ReadWriteCreateOrTruncate,
+        ) {
+            Ok(mut savefile) => {
+                info!("Found and opened savefile");
+
+                match savefile.write(saveram_memory) {
+                    Ok(_) => {
+                        info!("Saved saveram to {}", saveram_filename);
+                    }
+                    Err(error) => {
+                        warn!(
+                            "Unable to write to {}: {}",
+                            saveram_filename,
+                            defmt::Debug2Format(&error)
+                        );
+                    }
+                };
+
+                savefile.close().unwrap();
+            }
+            Err(error) => {
+                warn!(
+                    "Unable to open savefile for saving {}",
+                    defmt::Debug2Format(&error)
+                );
+            }
+        };
     }
 }
