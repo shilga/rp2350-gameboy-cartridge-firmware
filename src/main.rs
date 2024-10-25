@@ -407,6 +407,10 @@ async fn main(spawner: Spawner) {
         gb_bootloader.run().await
     };
 
+    volume_mgr.device().spi(|dev| {
+        dev.bus_mut().blocking_write(&[0xFF; 2]).unwrap();
+    });
+
     let mut hyperram = HyperRamReadOnly::new(&mut pio2, &pac::PIO2, sm2_0, hyperrampins);
     let dat = hyperram.read_blocking(0x4100u32);
     let dat2 = hyperram.read_blocking(0x4105u32);
