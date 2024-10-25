@@ -1,3 +1,5 @@
+use defmt::error;
+
 pub enum MbcType {
     None,
     Mbc1,
@@ -15,14 +17,16 @@ pub struct RomInfo {
 impl RomInfo {
     pub fn from_rom_bytes(first_bank: &[u8]) -> Option<Self> {
         let has_rtc = false;
+        let mbc_dat = first_bank[0x147];
 
-        let mbc = match first_bank[0x147] {
+        let mbc = match mbc_dat {
             0x00u8 => MbcType::None,
-            0x01u8..0x03u8 => MbcType::Mbc1,
-            0x05u8..0x07u8 => MbcType::Mbc2,
-            0x0Fu8..0x13u8 => MbcType::Mbc3,
-            0x19u8..0x1Eu8 => MbcType::Mbc5,
+            0x01u8..=0x03u8 => MbcType::Mbc1,
+            0x05u8..=0x07u8 => MbcType::Mbc2,
+            0x0Fu8..=0x13u8 => MbcType::Mbc3,
+            0x19u8..=0x1Eu8 => MbcType::Mbc5,
             _ => {
+                error!("Don't know how to interpret MBC type {:#x}", mbc_dat);
                 return None;
             }
         };
