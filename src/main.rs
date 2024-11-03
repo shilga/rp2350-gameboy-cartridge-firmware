@@ -12,16 +12,19 @@ use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
 use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::peripherals::{PIN_46, USB};
-use embassy_rp::peripherals::{PIO0, PIO1, PIO2, UART0};
+use embassy_rp::peripherals::{PIO0, PIO1, PIO2, SPI0, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
+use embassy_rp::spi::Blocking;
 use embassy_rp::uart::UartTx;
 use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_rp::{bind_interrupts, spi};
 use embassy_rp::{clocks, config as rpconfig, pac};
-use embedded_hal_bus::spi::ExclusiveDevice;
 
-use embassy_embedded_hal::SetConfig;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::CriticalSectionMutex;
+
+use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Config, UsbDevice};
@@ -38,6 +41,7 @@ use rom_info::{MbcType, RomInfo};
 use rp2350_core_voltage::vreg_set_voltage;
 use smart_leds::RGB8;
 
+use core::cell::RefCell;
 use core::{ptr, str};
 
 use defmt::{info, unwrap, warn};
@@ -73,6 +77,9 @@ mod dma_helper;
 mod rom_info;
 
 mod rp2350_core_voltage;
+
+mod mcp975xx;
+use mcp975xx::Mcp795xx;
 
 #[link_section = ".start_block"]
 #[used]
@@ -135,11 +142,7 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
 
 type VolumeManagerType<'d> = VolumeManager<
     SdCard<
-        ExclusiveDevice<
-            spi::Spi<'d, embassy_rp::peripherals::SPI0, spi::Blocking>,
-            Output<'d>,
-            embedded_hal_bus::spi::NoDelay,
-        >,
+        SpiDeviceWithConfig<'d, CriticalSectionRawMutex, spi::Spi<'d, SPI0, Blocking>, Output<'d>>,
         embassy_time::Delay,
     >,
     DummyTimesource,
@@ -150,6 +153,9 @@ static LOADED_ROM_INFO: StaticCell<RomInfo> = StaticCell::new();
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
+
+static SPI_BUS: StaticCell<CriticalSectionMutex<RefCell<spi::Spi<SPI0, Blocking>>>> =
+    StaticCell::new();
 
 extern "C" {
     static mut _s_gb_rom_memory: u8;
@@ -358,27 +364,38 @@ async fn main(spawner: Spawner) {
     gb_ram_read_pio.start();
     gb_ram_write_pio.start();
 
-    // SPI clock needs to be running at <= 400kHz during initialization
+    // SPI clock needs to be running at <= 400kHz during initialization of sd card
     let mut config = spi::Config::default();
     config.frequency = 400_000;
-    let mut spi = spi::Spi::new_blocking(p.SPI0, p.PIN_2, p.PIN_3, p.PIN_0, config);
+    let spi = spi::Spi::new_blocking(p.SPI0, p.PIN_2, p.PIN_3, p.PIN_0, config);
+
+    let spi_bus = CriticalSectionMutex::new(RefCell::new(spi));
+    let spi_bus = SPI_BUS.init(spi_bus);
 
     let cs_sd_pin = Output::new(p.PIN_1, Level::High);
-    let _cs_rtc_pin = Output::new(p.PIN_5, Level::High);
+    let cs_rtc_pin = Output::new(p.PIN_5, Level::High);
 
     // pre-initialize with 74 clock cycles according to SD-card spec
-    spi.blocking_write(&[0xFF; 10]).unwrap();
+    spi_bus.lock(|bus| {
+        bus.borrow_mut().blocking_write(&[0xFF; 10]).unwrap();
+    });
 
-    let spi_dev = ExclusiveDevice::new_no_delay(spi, cs_sd_pin);
+    let mut config = spi::Config::default();
+    config.frequency = 400_000;
+    let spi_dev_sd = SpiDeviceWithConfig::new(spi_bus, cs_sd_pin, config);
+
+    let mut config = spi::Config::default();
+    config.frequency = 1_000_000;
+    let spi_dev_rtc = SpiDeviceWithConfig::new(spi_bus, cs_rtc_pin, config);
 
     // open the sd card and fully initialize it
-    let sdcard = SdCard::new(spi_dev, embassy_time::Delay);
+    let sdcard = SdCard::new(spi_dev_sd, embassy_time::Delay);
     info!("Card size is {} bytes", sdcard.num_bytes().unwrap());
 
     // Now that the card is initialized, the SPI clock can go faster
     let mut config = spi::Config::default();
     config.frequency = 16_000_000;
-    sdcard.spi(|dev| dev.bus_mut().set_config(&config)).ok();
+    sdcard.spi(|dev| dev.set_config(config));
 
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.
@@ -388,6 +405,38 @@ async fn main(spawner: Spawner) {
             DummyTimesource(),
         ))
     };
+
+    let mut rtc = Mcp795xx::new(spi_dev_rtc);
+
+    let control = rtc.read_register(8).unwrap();
+    info!("control {:#x}", control);
+    if control != 0x40 {
+        info!("writing control");
+        rtc.write_register(8, 0x40).unwrap();
+    }
+
+    let weekd_status = rtc.read_register(4).unwrap();
+    info!("weekd_status {:#x}", weekd_status);
+    if weekd_status & 0x08 == 0 {
+        info!("enabling VBat");
+        rtc.write_register(4, 0x09u8).unwrap();
+
+        let weekd_status2 = rtc.read_register(4).unwrap();
+        info!("weekd_status2 {:#x}", weekd_status2);
+    }
+
+    let sec_status = rtc.read_register(1).unwrap();
+    info!("sec_status {:#x}", sec_status);
+    if sec_status & 0x80 == 0 {
+        info!("enabling RTC oscillator");
+        rtc.write_register(1, 0x80u8).unwrap();
+    }
+
+    let sec0 = rtc.read_register(1).unwrap();
+    Timer::after_millis(2500).await;
+    let sec1 = rtc.read_register(1).unwrap();
+
+    info!("sec0 {:#x}, sec1 {:#x}", sec0, sec1);
 
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
@@ -420,8 +469,8 @@ async fn main(spawner: Spawner) {
         gb_bootloader.run().await
     });
 
-    volume_mgr.device().spi(|dev| {
-        dev.bus_mut().blocking_write(&[0xFF; 2]).unwrap();
+    spi_bus.lock(|bus| {
+        bus.borrow_mut().blocking_write(&[0xFF; 2]).unwrap();
     });
 
     let mut hyperram = HyperRamReadOnly::new(&mut pio2, &pac::PIO2, sm2_0, hyperrampins);
