@@ -94,32 +94,36 @@ where
         let mut root_dir = volume0.open_root_dir().unwrap();
         root_dir
             .iterate_dir(|entry| {
-                let rom_data = &mut bootloader_data[used_data..used_data + 18];
-                rom_data[0] = 0; // always without RTC for now
-                let filename_data = &mut rom_data[1..];
-                let base_name = entry.name.base_name();
-                let extension = entry.name.extension();
-                let filename_len = base_name.len() + extension.len() + 1;
-                filename_data[..base_name.len()].copy_from_slice(base_name);
-                filename_data[base_name.len()] = b'.';
-                filename_data[base_name.len() + 1..filename_len].copy_from_slice(extension);
-                filename_data[filename_len] = 0; // zero terminate
+                if entry.name.extension() == b"GB".as_ref()
+                    || entry.name.extension() == b"GBC".as_ref()
+                {
+                    let rom_data = &mut bootloader_data[used_data..used_data + 18];
+                    rom_data[0] = 0; // always without RTC for now
+                    let filename_data = &mut rom_data[1..];
+                    let base_name = entry.name.base_name();
+                    let extension = entry.name.extension();
+                    let filename_len = base_name.len() + extension.len() + 1;
+                    filename_data[..base_name.len()].copy_from_slice(base_name);
+                    filename_data[base_name.len()] = b'.';
+                    filename_data[base_name.len() + 1..filename_len].copy_from_slice(extension);
+                    filename_data[filename_len] = 0; // zero terminate
 
-                used_data += filename_len + 1 + 1; // + zero termination + status byte
-                num_roms += 1;
+                    used_data += filename_len + 1 + 1; // + zero termination + status byte
+                    num_roms += 1;
 
-                info!("filename_data: {}", filename_data);
+                    info!("filename_data: {}", filename_data);
 
-                info!(
-                    "{} {} {}",
-                    core::str::from_utf8(&filename_data[0..filename_len]).unwrap(),
-                    entry.size,
-                    if entry.attributes.is_directory() {
-                        "<DIR>"
-                    } else {
-                        ""
-                    }
-                );
+                    info!(
+                        "{} {} {}",
+                        core::str::from_utf8(&filename_data[0..filename_len]).unwrap(),
+                        entry.size,
+                        if entry.attributes.is_directory() {
+                            "<DIR>"
+                        } else {
+                            ""
+                        }
+                    );
+                }
             })
             .unwrap();
 
