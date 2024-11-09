@@ -432,12 +432,6 @@ async fn main(spawner: Spawner) {
         rtc.write_register(1, 0x80u8).unwrap();
     }
 
-    let sec0 = rtc.read_register(1).unwrap();
-    Timer::after_millis(2500).await;
-    let sec1 = rtc.read_register(1).unwrap();
-
-    info!("sec0 {:#x}, sec1 {:#x}", sec0, sec1);
-
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
         p.PIN_14, p.PIN_15, p.PIN_16,
