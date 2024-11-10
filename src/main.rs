@@ -11,7 +11,7 @@ use embassy_executor::{Executor, Spawner};
 use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
 use embassy_rp::multicore::{spawn_core1, Stack};
-use embassy_rp::peripherals::{PIN_46, USB};
+use embassy_rp::peripherals::{PIN_46, SPI1, USB};
 use embassy_rp::peripherals::{PIO0, PIO1, PIO2, SPI0, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::spi::Blocking;
@@ -49,8 +49,8 @@ use {defmt_serial as _, panic_probe as _};
 
 use static_cell::StaticCell;
 
-mod ws2812;
-use crate::ws2812::Ws2812;
+mod ws2812_spi;
+use crate::ws2812_spi::Ws2812Spi;
 
 mod picotool_reset;
 use crate::picotool_reset::PicotoolReset;
@@ -208,7 +208,7 @@ async fn main(spawner: Spawner) {
 
     let Pio {
         common: mut pio0,
-        sm0: sm0_0,
+        sm0: _sm0_0,
         sm1: sm0_1,
         sm2: sm0_2,
         sm3: sm0_3,
@@ -230,7 +230,7 @@ async fn main(spawner: Spawner) {
         ..
     } = Pio::new(p.PIO2, Irqs);
 
-    // let ws2812 = Ws2812::new(&mut pio0, sm0_0, p.PIN_47);
+    let ws2812 = Ws2812Spi::new(p.SPI1, p.PIN_47);
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USB, Irqs);
@@ -354,7 +354,7 @@ async fn main(spawner: Spawner) {
     );
 
     // Spawned tasks run in the background, concurrently.
-    // spawner.spawn(blink(ws2812)).unwrap();
+    spawner.spawn(blink(ws2812)).unwrap();
     spawner.spawn(usb_task(usb)).unwrap();
 
     gb_rom_lower_pio.start();
@@ -554,7 +554,7 @@ async fn main(spawner: Spawner) {
 
 // Declare async tasks
 #[embassy_executor::task]
-async fn blink(mut led: Ws2812<'static, PIO0, 0>) {
+async fn blink(mut led: Ws2812Spi<'static, SPI1>) {
     {
         loop {
             let off = RGB8::default();
