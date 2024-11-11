@@ -1,4 +1,4 @@
-use embassy_rp::{gpio::Pin as GpioPin, into_ref, pac, peripherals, Peripheral, PeripheralRef};
+use embassy_rp::{into_ref, pac, peripherals, spi, spi::MosiPin, Peripheral, PeripheralRef};
 use smart_leds::RGB8;
 
 pub trait Ws2812Led {
@@ -13,7 +13,7 @@ const TARGET_BAUDRATE: u32 = 2800000u32;
 /// As the there is a FIFO of 8 times 16 bit one RGB state can be transmitted instantly
 #[allow(private_bounds)]
 pub struct Ws2812Spi<'d, T: Instance> {
-    inner: PeripheralRef<'d, T>,
+    inst: PeripheralRef<'d, T>,
     buffer: [u8; 16],
     //    phantom: PhantomData<(&'d mut T, M)>,
 }
@@ -76,10 +76,10 @@ unsafe fn fill_buffer(color: u8, buffer_ptr: *mut u8) {
 #[allow(private_bounds)]
 impl<'d, T: Instance> Ws2812Spi<'d, T> {
     pub fn new(
-        inner: impl Peripheral<P = T> + 'd,
+        inst: impl Peripheral<P = T> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
     ) -> Self {
-        into_ref!(mosi, inner);
+        into_ref!(mosi, inst);
 
         let mosi_pin = mosi.pin() as usize;
 
@@ -97,7 +97,7 @@ impl<'d, T: Instance> Ws2812Spi<'d, T> {
             w.set_pde(false);
         });
 
-        let p = inner.regs();
+        let p = inst.regs();
         let (presc, postdiv) = calc_prescs(TARGET_BAUDRATE);
 
         p.cpsr().write(|w| w.set_cpsdvsr(presc));
@@ -110,7 +110,7 @@ impl<'d, T: Instance> Ws2812Spi<'d, T> {
         p.cr1().write(|w| w.set_sse(true));
 
         Self {
-            inner,
+            inst,
             buffer: [0u8; 16],
         }
     }
@@ -125,14 +125,14 @@ impl<'d, T: Instance> Ws2812Led for Ws2812Spi<'d, T> {
         }
 
         for i in (0..self.buffer.len()).step_by(2) {
-            self.inner.regs().dr().write_value(pac::spi::regs::Dr(
+            self.inst.regs().dr().write_value(pac::spi::regs::Dr(
                 ((self.buffer[i] as u32) << 8) | self.buffer[i + 1] as u32,
             ));
         }
     }
 }
 
-trait Instance {
+trait Instance: spi::Instance {
     fn regs(&self) -> pac::spi::Spi;
 }
 
@@ -148,13 +148,3 @@ macro_rules! impl_instance {
 
 impl_instance!(SPI0);
 impl_instance!(SPI1);
-
-trait MosiPin<T: Instance>: GpioPin {}
-
-macro_rules! impl_pin {
-    ($pin:ident, $instance:ident, $function:ident) => {
-        impl $function<peripherals::$instance> for peripherals::$pin {}
-    };
-}
-
-impl_pin!(PIN_47, SPI1, MosiPin);
