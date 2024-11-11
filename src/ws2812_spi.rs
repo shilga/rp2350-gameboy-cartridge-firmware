@@ -1,6 +1,10 @@
 use embassy_rp::{gpio::Pin as GpioPin, into_ref, pac, peripherals, Peripheral, PeripheralRef};
 use smart_leds::RGB8;
 
+pub trait Ws2812Led {
+    fn write(&mut self, color: &RGB8);
+}
+
 const TARGET_BAUDRATE: u32 = 2800000u32;
 
 /// Driver for WS2812x RGB LED which uses an RP SPI interface MOSI pin
@@ -110,8 +114,10 @@ impl<'d, T: Instance> Ws2812Spi<'d, T> {
             buffer: [0u8; 16],
         }
     }
+}
 
-    pub fn write(&mut self, color: &RGB8) {
+impl<'d, T: Instance> Ws2812Led for Ws2812Spi<'d, T> {
+    fn write(&mut self, color: &RGB8) {
         unsafe {
             fill_buffer(color.g, self.buffer[0..4].as_mut_ptr());
             fill_buffer(color.r, self.buffer[4..8].as_mut_ptr());

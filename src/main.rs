@@ -50,7 +50,7 @@ use {defmt_serial as _, panic_probe as _};
 use static_cell::StaticCell;
 
 mod ws2812_spi;
-use crate::ws2812_spi::Ws2812Spi;
+use crate::ws2812_spi::{Ws2812Led, Ws2812Spi};
 
 mod picotool_reset;
 use crate::picotool_reset::PicotoolReset;
@@ -157,6 +157,8 @@ static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 static SPI_BUS: StaticCell<CriticalSectionMutex<RefCell<spi::Spi<SPI0, Blocking>>>> =
     StaticCell::new();
 
+static WS2812: StaticCell<Ws2812Spi<SPI1>> = StaticCell::new();
+
 extern "C" {
     static mut _s_gb_rom_memory: u8;
     static mut _s_gb_save_ram: u8;
@@ -230,7 +232,7 @@ async fn main(spawner: Spawner) {
         ..
     } = Pio::new(p.PIO2, Irqs);
 
-    let ws2812 = Ws2812Spi::new(p.SPI1, p.PIN_47);
+    let ws2812 = WS2812.init(Ws2812Spi::new(p.SPI1, p.PIN_47));
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USB, Irqs);
@@ -295,6 +297,9 @@ async fn main(spawner: Spawner) {
     // Build the builder.
     let usb = builder.build();
 
+    // Spawned tasks run in the background, concurrently.
+    spawner.spawn(usb_task(usb)).unwrap();
+
     #[rustfmt::skip]
     let gb_pio_pins = GbPioPins::new(
         &mut pio1,
@@ -352,10 +357,6 @@ async fn main(spawner: Spawner) {
         ptr::addr_of_mut!(gb_ram_ptr),
         &gb_ram_write_pio,
     );
-
-    // Spawned tasks run in the background, concurrently.
-    spawner.spawn(blink(ws2812)).unwrap();
-    spawner.spawn(usb_task(usb)).unwrap();
 
     gb_rom_lower_pio.start();
     gb_data_out_pio.start();
@@ -458,10 +459,13 @@ async fn main(spawner: Spawner) {
             gb_save_ram,
             &mut reset_pin,
             &mut hyperram,
+            ws2812,
         );
 
         gb_bootloader.run().await
     });
+
+    ws2812.write(&RGB8::default());
 
     spi_bus.lock(|bus| {
         bus.borrow_mut().blocking_write(&[0xFF; 2]).unwrap();
@@ -516,6 +520,7 @@ async fn main(spawner: Spawner) {
                 executor1.run(|spawner| {
                     unwrap!(spawner.spawn(core1_task(
                         p.PIN_4.into(),
+                        ws2812,
                         volume_mgr,
                         rom_info,
                         gb_save_ram
@@ -553,26 +558,6 @@ async fn main(spawner: Spawner) {
 }
 
 // Declare async tasks
-#[embassy_executor::task]
-async fn blink(mut led: Ws2812Spi<'static, SPI1>) {
-    {
-        loop {
-            let off = RGB8::default();
-            let blue = RGB8::new(0, 0, 16);
-            let red = RGB8::new(16, 0, 0);
-            let green = RGB8::new(0, 16, 0);
-            led.write(&off);
-            Timer::after_millis(500).await;
-            led.write(&blue);
-            Timer::after_millis(500).await;
-            led.write(&red);
-            Timer::after_millis(500).await;
-            led.write(&green);
-            Timer::after_millis(500).await;
-        }
-    }
-}
-
 type MyUsbDriver = Driver<'static, USB>;
 type MyUsbDevice = UsbDevice<'static, MyUsbDriver>;
 
@@ -584,6 +569,7 @@ async fn usb_task(mut usb: MyUsbDevice) -> ! {
 #[embassy_executor::task]
 async fn core1_task(
     button_pin: AnyPin,
+    led: &'static mut dyn Ws2812Led,
     volume_mgr: &'static mut VolumeManagerType<'_>,
     rom_info: &'static RomInfo,
     saveram_memory: &'static [u8],
@@ -602,6 +588,8 @@ async fn core1_task(
         info!("Hello from core 1");
         async_input.wait_for_high().await;
         async_input.wait_for_low().await;
+
+        led.write(&RGB8::new(16, 0, 0));
 
         match root_dir.open_file_in_dir(
             saveram_filename,
@@ -632,5 +620,7 @@ async fn core1_task(
                 );
             }
         };
+
+        led.write(&RGB8::default());
     }
 }

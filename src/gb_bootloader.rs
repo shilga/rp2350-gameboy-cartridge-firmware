@@ -1,14 +1,15 @@
-use core::num;
-
 use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
 use crate::rom_info::RomInfo;
+use crate::ws2812_spi::Ws2812Led;
 use arrayvec::ArrayString;
 use cstr_core::{c_char, CStr};
 use defmt::{info, warn};
+use embassy_futures::select::{select, Either};
 use embassy_rp::pio::{Instance, StateMachineRx};
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant, Ticker};
 use embedded_hal_1::digital::OutputPin;
 use embedded_sdmmc::{BlockDevice, TimeSource, VolumeManager};
+use smart_leds::RGB8;
 
 pub struct GbBootloader<
     'a,
@@ -34,6 +35,7 @@ pub struct GbBootloader<
     gb_ram_memory: &'a mut [u8],
     reset_pin: &'a mut Pin,
     hyperram: &'a mut dyn HyperRamWriteBlocking,
+    led: &'a mut dyn Ws2812Led,
 }
 
 impl<
@@ -62,6 +64,7 @@ where
         gb_ram_memory: &'a mut [u8],
         reset_pin: &'a mut Pin,
         hyperram: &'a mut dyn HyperRamWriteBlocking,
+        led: &'a mut dyn Ws2812Led,
     ) -> GbBootloader<'a, 'd, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES, PIO, SM, Pin, PinError> {
         Self {
             volume_mgr,
@@ -70,6 +73,7 @@ where
             gb_ram_memory,
             reset_pin,
             hyperram,
+            led,
         }
     }
 
@@ -133,19 +137,39 @@ where
 
         let game_name_cstr;
 
+        let mut ticker = Ticker::every(Duration::from_millis(500));
+        let colors = [
+            RGB8::default(),
+            RGB8::new(0, 0, 16),
+            RGB8::new(16, 0, 0),
+            RGB8::new(0, 16, 0),
+        ];
+        let mut current_color = 1;
+
         loop {
-            let addr = self.rx_fifo.wait_pull().await;
-            let data = (self.rx_fifo.wait_pull().await & 0xFFu32) as u8;
+            match select(ticker.next(), self.rx_fifo.wait_pull()).await {
+                Either::First(_) => {
+                    self.led.write(&colors[current_color]);
+                    current_color += 1;
+                    if current_color == colors.len() {
+                        current_color = 0;
+                    }
+                }
+                Either::Second(addr) => {
+                    let data = (self.rx_fifo.wait_pull().await & 0xFFu32) as u8;
 
-            info!("Addr {:#x} data {:#x}", addr, data);
+                    info!("Addr {:#x} data {:#x}", addr, data);
 
-            if addr == 0x6000u32 && data == 42 {
-                let game_name_mem = &mut self.gb_ram_memory[0x1000..0x1011];
-                info!("game_name_mem {}", game_name_mem);
-                game_name_cstr = unsafe { CStr::from_ptr(game_name_mem.as_ptr() as *const c_char) };
-                info!("Selected game: {}", game_name_cstr.to_str().unwrap());
+                    if addr == 0x6000u32 && data == 42 {
+                        let game_name_mem = &mut self.gb_ram_memory[0x1000..0x1011];
+                        info!("game_name_mem {}", game_name_mem);
+                        game_name_cstr =
+                            unsafe { CStr::from_ptr(game_name_mem.as_ptr() as *const c_char) };
+                        info!("Selected game: {}", game_name_cstr.to_str().unwrap());
 
-                break;
+                        break;
+                    }
+                }
             }
         }
 
