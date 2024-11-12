@@ -1,3 +1,4 @@
+use crate::built_info;
 use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
 use crate::rom_info::RomInfo;
 use crate::ws2812_spi::Ws2812Led;
@@ -90,7 +91,19 @@ where
             .unwrap();
         info!("Volume 0: {:?}", defmt::Debug2Format(&volume0));
 
+        // put in some version info
         let bootloader_data = &mut self.gb_ram_memory[0..0x1000];
+        let git_short_hash =
+            u32::from_str_radix(built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("0"), 16).unwrap_or(0);
+        bootloader_data[0..4].copy_from_slice(&git_short_hash.to_le_bytes());
+        bootloader_data[4] = if built_info::GIT_DIRTY.unwrap_or_default() {
+            0x1u8
+        } else {
+            0x0u8
+        };
+        bootloader_data[5] = 'U' as u8;
+        bootloader_data[6..9].fill(255);
+
         let mut used_data = 16usize; // offset that makes it compatible to the v1 cartridge bootloader
         let mut num_roms = 0u8;
 

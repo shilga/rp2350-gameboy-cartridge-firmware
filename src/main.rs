@@ -81,6 +81,11 @@ mod rp2350_core_voltage;
 mod mcp975xx;
 use mcp975xx::Mcp795xx;
 
+// Include the generated-file as a separate module
+pub mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 #[link_section = ".start_block"]
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
@@ -203,7 +208,11 @@ async fn main(spawner: Spawner) {
     defmt_serial::defmt_serial(SERIAL.init(serialwrapper));
 
     let sys_freq = clocks::clk_sys_freq();
-    info!("Hello defmt-world!, running at {} hz", sys_freq);
+    info!(
+        "Hello defmt-world!, croco-cartridge v2 revision {}",
+        built_info::GIT_COMMIT_HASH_SHORT
+    );
+    info!("running at {} hz", sys_freq);
 
     let mut reset_pin = Output::new(p.PIN_45, Level::High);
     let mut _gb_bus_en = Output::new(p.PIN_44, Level::High);

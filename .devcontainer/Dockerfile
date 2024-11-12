@@ -20,7 +20,8 @@ RUN apk update && \
             boost-dev \
             texinfo \
             zlib-dev \
-            libpng-dev
+            libpng-dev \
+            zlib-static
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
