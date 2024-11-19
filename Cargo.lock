@@ -480,6 +480,7 @@ dependencies = [
  "built",
  "cortex-m",
  "cortex-m-rt",
+ "critical-section",
  "cstr_core",
  "defmt",
  "defmt-serial",

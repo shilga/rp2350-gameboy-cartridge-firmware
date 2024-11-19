@@ -91,10 +91,10 @@ impl<'d, T: Instance> Ws2812Spi<'d, T> {
             w.set_iso(false);
             w.set_schmitt(true);
             w.set_slewfast(false);
-            w.set_ie(true);
+            w.set_ie(false);
             w.set_od(false);
             w.set_pue(false);
-            w.set_pde(false);
+            w.set_pde(true);
         });
 
         let p = inst.regs();
@@ -124,11 +124,15 @@ impl<'d, T: Instance> Ws2812Led for Ws2812Spi<'d, T> {
             fill_buffer(color.b, self.buffer[8..12].as_mut_ptr());
         }
 
-        for i in (0..self.buffer.len()).step_by(2) {
-            self.inst.regs().dr().write_value(pac::spi::regs::Dr(
-                ((self.buffer[i] as u32) << 8) | self.buffer[i + 1] as u32,
-            ));
-        }
+        critical_section::with(|_cs| {
+            // This code runs within a critical section.
+
+            for i in (0..self.buffer.len()).step_by(2) {
+                self.inst.regs().dr().write_value(pac::spi::regs::Dr(
+                    ((self.buffer[i] as u32) << 8) | self.buffer[i + 1] as u32,
+                ));
+            }
+        });
     }
 }
 
