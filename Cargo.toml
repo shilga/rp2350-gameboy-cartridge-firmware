@@ -1,8 +1,8 @@
 [package]
 edition = "2021"
-name = "embassy-rp2350-examples"
+name = "rp2350-gameboy-cartridge"
 version = "0.1.0"
-license = "MIT OR Apache-2.0"
+license = "GPLv3"
 
 
 [dependencies]

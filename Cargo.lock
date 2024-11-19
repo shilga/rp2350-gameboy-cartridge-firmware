@@ -473,39 +473,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "embassy-rp2350-examples"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "built",
- "cortex-m",
- "cortex-m-rt",
- "critical-section",
- "cstr_core",
- "defmt",
- "defmt-serial",
- "embassy-embedded-hal",
- "embassy-executor",
- "embassy-futures",
- "embassy-rp",
- "embassy-sync",
- "embassy-time",
- "embassy-usb",
- "embassy-usb-logger",
- "embedded-hal 1.0.0",
- "embedded-hal-bus",
- "embedded-io",
- "embedded-sdmmc",
- "fixed",
- "fixed-macro",
- "panic-probe",
- "pio",
- "pio-proc",
- "smart-leds",
- "static_cell",
-]
-
-[[package]]
 name = "embassy-sync"
 version = "0.6.0"
 source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
@@ -1474,6 +1441,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c92f344f63f950ee36cf4080050e4dce850839b9175da38f9d2ffb69b4dbb21"
 dependencies = [
  "crc-any",
+]
+
+[[package]]
+name = "rp2350-gameboy-cartridge"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "built",
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "cstr_core",
+ "defmt",
+ "defmt-serial",
+ "embassy-embedded-hal",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-rp",
+ "embassy-sync",
+ "embassy-time",
+ "embassy-usb",
+ "embassy-usb-logger",
+ "embedded-hal 1.0.0",
+ "embedded-hal-bus",
+ "embedded-io",
+ "embedded-sdmmc",
+ "fixed",
+ "fixed-macro",
+ "panic-probe",
+ "pio",
+ "pio-proc",
+ "smart-leds",
+ "static_cell",
 ]
 
 [[package]]
