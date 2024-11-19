@@ -1,6 +1,6 @@
 //! Set up linker scripts for the rp235x-hal examples
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
@@ -54,4 +54,27 @@ fn main() {
     // println!("cargo:rerun-if-changed=rp235x_riscv.x");
 
     println!("cargo:rerun-if-changed=build.rs");
+
+    built::write_built_file().expect("Failed to acquire build-time information");
+
+    // Make sure we get rerun when the git commit changes.
+    // We want to watch two files: HEAD, which tracks which branch we are on,
+    // and the file for that branch that tracks which commit is is on.
+    let git_head_file = PathBuf::from(".git/HEAD");
+    if git_head_file.exists() {
+        println!("cargo::rerun-if-changed={}", git_head_file.display());
+
+        let git_head_ref = fs::read_to_string(git_head_file).expect("Unable to read HEAD ref");
+
+        let v: Vec<&str> = git_head_ref.trim().split("ref: ").collect();
+        if v[0] == "" {
+            // this is only true if HEAD begins with "ref:", if false HEAD is detached
+            let git_head_ref = v[1];
+
+            let git_head_ref_file = PathBuf::from(".git").join(git_head_ref);
+            if git_head_ref_file.exists() {
+                println!("cargo::rerun-if-changed={}", git_head_ref_file.display());
+            }
+        }
+    }
 }
