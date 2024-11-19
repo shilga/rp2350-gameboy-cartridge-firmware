@@ -11,6 +11,7 @@ use embassy_executor::{Executor, Spawner};
 use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
 use embassy_rp::multicore::{spawn_core1, Stack};
+use embassy_rp::otp;
 use embassy_rp::peripherals::{PIN_46, SPI1, USB};
 use embassy_rp::peripherals::{PIO0, PIO1, PIO2, SPI0, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
@@ -43,6 +44,8 @@ use smart_leds::RGB8;
 
 use core::cell::RefCell;
 use core::{ptr, str};
+
+use arrayvec::ArrayString;
 
 use defmt::{info, unwrap, warn};
 use {defmt_serial as _, panic_probe as _};
@@ -108,7 +111,7 @@ bind_interrupts!(struct Irqs {
 });
 
 // This is a randomly generated GUID to allow clients on Windows to find our device
-const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{F5E9F718-9228-4B8F-BE38-E53DE6FDCE2B}"];
 
 static SERIAL: StaticCell<SerialWrapper> = StaticCell::new();
 
@@ -246,13 +249,20 @@ async fn main(spawner: Spawner) {
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USB, Irqs);
 
+    let serialnum = otp::get_chipid().unwrap();
+    let serial = {
+        static SERIALBUF: StaticCell<ArrayString<16>> = StaticCell::new();
+        SERIALBUF.init(ArrayString::<16>::new())
+    };
+    core::fmt::write(serial, format_args!("{:X}", serialnum)).unwrap();
+
     // Create embassy-usb Config
     // Create a USB device RPI Vendor ID and on of these Product ID:
     // https://github.com/raspberrypi/picotool/blob/master/picoboot_connection/picoboot_connection.c#L23-L27
     let mut config = Config::new(0x2e8a, 0x0009);
-    config.manufacturer = Some("Embassy");
-    config.product = Some("USB raw example");
-    config.serial_number = Some("12345678");
+    config.manufacturer = Some("Croco");
+    config.product = Some("Cartridge V2");
+    config.serial_number = Some(serial.as_str());
     config.max_power = 100;
     config.max_packet_size_0 = 64;
 
