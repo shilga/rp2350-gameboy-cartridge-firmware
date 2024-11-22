@@ -42,7 +42,7 @@ continue_hdma_read:
     irq set 0 ; if a A14 is low
     .wrap
 hdma_read:
-    jmp continue_hdma_read [7]
+    jmp continue_hdma_read [30]
 
 
 .program gameboy_bus_rom_low
