@@ -1,5 +1,7 @@
+#![allow(unused)]
+
 use arrayvec::ArrayString;
-use core::str::{self, FromStr};
+use core::str;
 use defmt::error;
 
 pub enum MbcType {
@@ -12,6 +14,7 @@ pub enum MbcType {
 
 pub struct RomInfo {
     pub ram_bank_count: u8,
+    pub rom_bank_count: u16,
     pub has_rtc: bool,
     pub mbc: MbcType,
     pub savefile: ArrayString<16>,
@@ -38,11 +41,14 @@ impl RomInfo {
         let ram_bank_count_value = first_bank[0x149];
         let ram_bank_count = lookup[ram_bank_count_value as usize];
 
+        let rom_bank_count = 1u16 << (first_bank[0x0148] as u16 + 1);
+
         let mut savefile = ArrayString::<16>::new();
         savefile.push_str(savefile_str);
 
         Some(Self {
             ram_bank_count,
+            rom_bank_count,
             has_rtc,
             mbc,
             savefile,

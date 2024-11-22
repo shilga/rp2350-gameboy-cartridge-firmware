@@ -84,7 +84,9 @@ struct SharedGameboyData
     uint8_t versionMajor;
     uint8_t versionMinor;
     uint8_t versionPatch;
-    struct TimePoint timePoint;
+    uint16_t loaded_banks;
+    uint16_t num_banks;
+    uint16_t reserved;
     uint8_t number_of_roms;
     char rom_names[];
 };
@@ -487,7 +489,8 @@ uint8_t drawscreenGameSettingsSavegameHook(void)
 uint8_t drawscreenGameSettingsRTC(void)
 {
     static uint8_t selectionX; // addresses fields from right to left
-    struct TimePoint *real_rtc = &s_sharedData->timePoint;
+    struct TimePoint real_rtc_;
+    struct TimePoint *real_rtc = &real_rtc_;
     uint8_t gameStart = 0;
     uint8_t *modval = (uint8_t *)real_rtc;
 
@@ -765,10 +768,24 @@ void startGame(uint8_t game)
 {
     const char *game_name = getRomNameForIndex(game);
     memcpy(SMEM_ADDR_GAME_SELECTOR, game_name, strlen(game_name) + 1);
-    DISPLAY_OFF;
+
     *ADDR_BOOTLOADER_CMD_EXEC = SMEM_GAME_START_MAGIC;
+
+    vsync();
+
+    resetHighlights();
+    cls();
+    gotoxy(0, 4);
+    printf("Loading ROM");
+    gotoxy(0, 5);
+    printf("Please wait...");
+    gotoxy(0, 7);
+    printf("Bank:");
+
     while (1)
     {
         vsync();
+        gotoxy(0, 8);
+        printf("%d of %d", s_sharedData->loaded_banks, s_sharedData->num_banks);
     }
 }

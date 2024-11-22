@@ -1,3 +1,5 @@
+use core::ptr;
+
 use crate::built_info;
 use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
 use crate::rom_info::RomInfo;
@@ -11,6 +13,20 @@ use embassy_time::{Duration, Instant, Ticker};
 use embedded_hal_1::digital::OutputPin;
 use embedded_sdmmc::{BlockDevice, TimeSource, VolumeManager};
 use smart_leds::RGB8;
+
+#[repr(C, packed(1))]
+struct SharedGameboyData {
+    git_sha1: u32,
+    git_status: u8,
+    build_type: c_char,
+    version_major: u8,
+    version_minor: u8,
+    version_patch: u8,
+    loaded_banks: u16,
+    num_banks: u16,
+    reserved: u16,
+    num_roms: u8,
+}
 
 pub struct GbBootloader<
     'a,
@@ -34,6 +50,7 @@ pub struct GbBootloader<
     rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
     gb_rom_memory: &'a mut [u8],
     gb_ram_memory: &'a mut [u8],
+    bank0_base_addr_ptr: *mut *mut u8,
     reset_pin: &'a mut Pin,
     hyperram: &'a mut dyn HyperRamWriteBlocking,
     led: &'a mut dyn Ws2812Led,
@@ -63,6 +80,7 @@ where
         rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
         gb_rom_memory: &'a mut [u8],
         gb_ram_memory: &'a mut [u8],
+        bank0_base_addr_ptr: *mut *mut u8,
         reset_pin: &'a mut Pin,
         hyperram: &'a mut dyn HyperRamWriteBlocking,
         led: &'a mut dyn Ws2812Led,
@@ -72,6 +90,7 @@ where
             rx_fifo,
             gb_rom_memory,
             gb_ram_memory,
+            bank0_base_addr_ptr,
             reset_pin,
             hyperram,
             led,
@@ -81,7 +100,15 @@ where
     pub async fn run(&mut self) -> RomInfo {
         // load the bootloader binary
         let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/bootloader.gb"));
-        self.gb_rom_memory[..bytes.len()].copy_from_slice(bytes);
+        self.gb_rom_memory[0x4000usize..bytes.len() + 0x4000usize].copy_from_slice(bytes);
+
+        // set the bank0 pointer to the memory we put the bootloader in
+        unsafe {
+            ptr::write_volatile(
+                self.bank0_base_addr_ptr,
+                self.gb_rom_memory.as_mut_ptr().offset(0x4000isize),
+            )
+        };
 
         // Try and access Volume 0 (i.e. the first partition).
         // The volume object holds information about the filesystem on that volume.
@@ -93,15 +120,20 @@ where
 
         // put in some version info
         let bootloader_data = &mut self.gb_ram_memory[0..0x1000];
+        let shared_data: &mut SharedGameboyData = unsafe {
+            (bootloader_data.as_mut_ptr() as *mut SharedGameboyData)
+                .as_mut()
+                .unwrap()
+        };
         let git_short_hash =
             u32::from_str_radix(built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("0"), 16).unwrap_or(0);
-        bootloader_data[0..4].copy_from_slice(&git_short_hash.to_le_bytes());
-        bootloader_data[4] = if built_info::GIT_DIRTY.unwrap_or_default() {
+        shared_data.git_sha1 = git_short_hash;
+        shared_data.git_status = if built_info::GIT_DIRTY.unwrap_or_default() {
             0x1u8
         } else {
             0x0u8
         };
-        bootloader_data[5] = 'U' as u8;
+        shared_data.build_type = 'U' as u8;
         bootloader_data[6..9].fill(255);
 
         let mut used_data = 16usize; // offset that makes it compatible to the v1 cartridge bootloader
@@ -144,7 +176,7 @@ where
             })
             .unwrap();
 
-        bootloader_data[15] = num_roms;
+        shared_data.num_roms = num_roms;
 
         let _ = self.reset_pin.set_low();
 
@@ -186,13 +218,11 @@ where
             }
         }
 
-        let _ = self.reset_pin.set_high();
-
         let ptr = self.gb_rom_memory.as_mut_ptr();
         let bank0 = unsafe { core::slice::from_raw_parts_mut(ptr, 0x4000usize) };
-        let temp_bank0 =
+        let _temp_bank0 =
             unsafe { core::slice::from_raw_parts_mut(ptr.add(0x4000usize), 0x4000usize) };
-        let _temp_bank1 =
+        let temp_bank1 =
             unsafe { core::slice::from_raw_parts_mut(ptr.add(0x8000usize), 0x4000usize) };
 
         let game_filename = game_name_cstr.to_str().unwrap();
@@ -211,11 +241,15 @@ where
 
         let rom_info = RomInfo::from_rom_bytes(bank0, save_filename.as_str()).unwrap();
 
+        shared_data.num_banks = rom_info.rom_bank_count;
+
         let mut addr = 0x4000u32;
+        shared_data.loaded_banks = 1u16;
         while addr < rom_length {
-            let _ = file.read(temp_bank0).unwrap();
-            self.hyperram.write_blocking(addr, temp_bank0);
+            let _ = file.read(temp_bank1).unwrap();
+            self.hyperram.write_blocking(addr, temp_bank1);
             addr += 0x4000u32;
+            shared_data.loaded_banks += 1;
         }
 
         let read_duration = read_start_time.elapsed();
@@ -226,6 +260,11 @@ where
         );
 
         file.close().unwrap();
+
+        let _ = self.reset_pin.set_high(); // reset the GameBoy
+
+        // set the bank0 pointer to the area we have loaded bank0 to
+        unsafe { ptr::write_volatile(self.bank0_base_addr_ptr, bank0.as_mut_ptr()) };
 
         match root_dir.open_file_in_dir(save_filename.as_str(), embedded_sdmmc::Mode::ReadOnly) {
             Ok(mut savefile) => {

@@ -475,6 +475,7 @@ async fn main(spawner: Spawner) {
             gb_mbc_commands_pio.rx_fifo(),
             gb_rom,
             gb_save_ram,
+            ptr::addr_of_mut!(gb_rom_ptr),
             &mut reset_pin,
             &mut hyperram,
             ws2812,
