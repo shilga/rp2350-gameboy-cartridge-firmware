@@ -110,14 +110,6 @@ where
             )
         };
 
-        // Try and access Volume 0 (i.e. the first partition).
-        // The volume object holds information about the filesystem on that volume.
-        let mut volume0 = self
-            .volume_mgr
-            .open_volume(embedded_sdmmc::VolumeIdx(0))
-            .unwrap();
-        info!("Volume 0: {:?}", defmt::Debug2Format(&volume0));
-
         // put in some version info
         let bootloader_data = &mut self.gb_ram_memory[0..0x1000];
         let shared_data: &mut SharedGameboyData = unsafe {
@@ -139,42 +131,55 @@ where
         let mut used_data = 16usize; // offset that makes it compatible to the v1 cartridge bootloader
         let mut num_roms = 0u8;
 
-        // Open the root directory (mutably borrows from the volume).
-        let mut root_dir = volume0.open_root_dir().unwrap();
-        root_dir
-            .iterate_dir(|entry| {
-                if entry.name.extension() == b"GB".as_ref()
-                    || entry.name.extension() == b"GBC".as_ref()
-                {
-                    let rom_data = &mut bootloader_data[used_data..used_data + 18];
-                    rom_data[0] = 0; // always without RTC for now
-                    let filename_data = &mut rom_data[1..];
-                    let base_name = entry.name.base_name();
-                    let extension = entry.name.extension();
-                    let filename_len = base_name.len() + extension.len() + 1;
-                    filename_data[..base_name.len()].copy_from_slice(base_name);
-                    filename_data[base_name.len()] = b'.';
-                    filename_data[base_name.len() + 1..filename_len].copy_from_slice(extension);
-                    filename_data[filename_len] = 0; // zero terminate
+        // Try and access Volume 0 (i.e. the first partition).
+        // The volume object holds information about the filesystem on that volume.
+        let mut volume0 = self.volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0));
+        match volume0 {
+            Ok(ref mut volume0) => {
+                info!("Volume 0: {:?}", defmt::Debug2Format(&volume0));
 
-                    used_data += filename_len + 1 + 1; // + zero termination + status byte
-                    num_roms += 1;
+                // Open the root directory (mutably borrows from the volume).
+                let mut root_dir = volume0.open_root_dir().unwrap();
+                root_dir
+                    .iterate_dir(|entry| {
+                        if entry.name.extension() == b"GB".as_ref()
+                            || entry.name.extension() == b"GBC".as_ref()
+                        {
+                            let rom_data = &mut bootloader_data[used_data..used_data + 18];
+                            rom_data[0] = 0; // always without RTC for now
+                            let filename_data = &mut rom_data[1..];
+                            let base_name = entry.name.base_name();
+                            let extension = entry.name.extension();
+                            let filename_len = base_name.len() + extension.len() + 1;
+                            filename_data[..base_name.len()].copy_from_slice(base_name);
+                            filename_data[base_name.len()] = b'.';
+                            filename_data[base_name.len() + 1..filename_len]
+                                .copy_from_slice(extension);
+                            filename_data[filename_len] = 0; // zero terminate
 
-                    info!("filename_data: {}", filename_data);
+                            used_data += filename_len + 1 + 1; // + zero termination + status byte
+                            num_roms += 1;
 
-                    info!(
-                        "{} {} {}",
-                        core::str::from_utf8(&filename_data[0..filename_len]).unwrap(),
-                        entry.size,
-                        if entry.attributes.is_directory() {
-                            "<DIR>"
-                        } else {
-                            ""
+                            info!("filename_data: {}", filename_data);
+
+                            info!(
+                                "{} {} {}",
+                                core::str::from_utf8(&filename_data[0..filename_len]).unwrap(),
+                                entry.size,
+                                if entry.attributes.is_directory() {
+                                    "<DIR>"
+                                } else {
+                                    ""
+                                }
+                            );
                         }
-                    );
-                }
-            })
-            .unwrap();
+                    })
+                    .unwrap();
+            }
+            Err(ref error) => {
+                warn!("unable to open volume0 {}", defmt::Debug2Format(error));
+            }
+        };
 
         shared_data.num_roms = num_roms;
 
@@ -232,6 +237,9 @@ where
         save_filename.push_str(".SAV");
 
         let read_start_time = Instant::now();
+
+        let mut volume0 = volume0.unwrap();
+        let mut root_dir = volume0.open_root_dir().unwrap();
 
         let mut file = root_dir
             .open_file_in_dir(game_filename, embedded_sdmmc::Mode::ReadOnly)

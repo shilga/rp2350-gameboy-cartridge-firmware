@@ -409,7 +409,14 @@ async fn main(spawner: Spawner) {
 
     // open the sd card and fully initialize it
     let sdcard = SdCard::new(spi_dev_sd, embassy_time::Delay);
-    info!("Card size is {} bytes", sdcard.num_bytes().unwrap());
+    match sdcard.num_bytes() {
+        Ok(num_bytes) => {
+            info!("Card size is {} bytes", num_bytes);
+        }
+        Err(_) => {
+            warn!("Could not get card size");
+        }
+    };
 
     // Now that the card is initialized, the SPI clock can go faster
     let mut config = spi::Config::default();
