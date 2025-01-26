@@ -82,7 +82,7 @@ mod rom_info;
 mod rp2350_core_voltage;
 
 mod mcp975xx;
-use mcp975xx::Mcp795xx;
+use mcp975xx::{DateTimeAccess, Mcp795xx};
 
 // Include the generated-file as a separate module
 pub mod built_info {
@@ -457,6 +457,8 @@ async fn main(spawner: Spawner) {
         info!("enabling RTC oscillator");
         rtc.write_register(1, 0x80u8).unwrap();
     }
+
+    info!("rtc: {}", defmt::Debug2Format(&rtc.datetime()));
 
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,

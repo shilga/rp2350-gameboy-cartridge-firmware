@@ -1,13 +1,20 @@
 use embedded_hal_1::spi::{Operation, SpiDevice};
 
+use defmt::{debug, info, warn};
+use {defmt_serial as _, panic_probe as _};
+
+pub use rtcc::{
+    DateTimeAccess, Datelike, Hours, NaiveDate, NaiveDateTime, NaiveTime, Rtcc, Timelike,
+};
+
 pub struct Mcp795xx<SPI> {
     spi: SPI,
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum Mcp795xxError<SPI> {
-    Spi(SPI),
-    // Add other errors for your driver here.
+pub enum Mcp795xxError<E> {
+    Spi(E),
+    CalendarError, // Add other errors for your driver here.
 }
 
 #[allow(unused)]
@@ -38,15 +45,56 @@ enum Instructions {
     CLRRAM = 0b0101_0100,
 }
 
-impl<SPI> Mcp795xx<SPI>
+#[allow(unused)]
+enum RegisterAdresses {
+    RTCHSEC = 0x00,
+    RTCSEC = 0x01,
+    RTCMIN = 0x02,
+    RTCHOUR = 0x03,
+    RTCWKDAY = 0x04,
+    RTCDATE = 0x05,
+    RTCMTH = 0x06,
+    RTCYEAR = 0x07,
+    CONTROL = 0x08,
+    ALM0SEC = 0x0C,
+    ALM0MIN = 0x0D,
+    ALM0HOUR = 0x0E,
+    ALM0WKDAY = 0x0F,
+    ALM0DATE = 0x10,
+    ALM0MTH = 0x11,
+    ALM1HSEC = 0x12,
+    ALM1SEC = 0x13,
+    ALM1MIN = 0x14,
+    ALM1HOUR = 0x15,
+    ALM1WKDAY = 0x16,
+    ALM1DATE = 0x17,
+    PWRDNMIN = 0x18,
+    PWRDNHOUR = 0x19,
+    PWRDNDATE = 0x1A,
+    PWRDNMTH = 0x1B,
+    PWRUPMIN = 0x1C,
+    PWRUPHOUR = 0x1D,
+    PWRUPDATE = 0x1E,
+    PWRUPMTH = 0x1F,
+}
+
+fn decimal_to_packed_bcd(dec: u8) -> u8 {
+    ((dec / 10) << 4) | (dec % 10)
+}
+
+pub(crate) fn bcd2bin(bcd: u8) -> u8 {
+    (bcd >> 4) * 10 + (bcd & 0xF)
+}
+
+impl<SPI, E> Mcp795xx<SPI>
 where
-    SPI: SpiDevice,
+    SPI: SpiDevice<Error = E>,
 {
     pub fn new(spi: SPI) -> Self {
         Self { spi }
     }
 
-    pub fn read_register(&mut self, addr: u8) -> Result<u8, Mcp795xxError<SPI::Error>> {
+    pub fn read_register(&mut self, addr: u8) -> Result<u8, Mcp795xxError<E>> {
         let mut read_buf = [0u8; 1];
 
         self.spi
@@ -59,15 +107,53 @@ where
         Ok(read_buf[0])
     }
 
-    pub fn write_register(
-        &mut self,
-        addr: u8,
-        reg_data: u8,
-    ) -> Result<(), Mcp795xxError<SPI::Error>> {
+    pub fn read_registers(&mut self, addr: u8, payload: &mut [u8]) -> Result<(), Mcp795xxError<E>> {
+        self.spi
+            .transaction(&mut [
+                Operation::Write(&[Instructions::READ as u8, addr]),
+                Operation::Read(payload),
+            ])
+            .map_err(Mcp795xxError::Spi)?;
+
+        Ok(())
+    }
+
+    pub fn write_register(&mut self, addr: u8, reg_data: u8) -> Result<(), Mcp795xxError<E>> {
         self.spi
             .write(&[Instructions::WRITE as u8, addr, reg_data])
             .map_err(Mcp795xxError::Spi)?;
 
+        Ok(())
+    }
+}
+
+impl<SPI, E> DateTimeAccess for Mcp795xx<SPI>
+where
+    SPI: SpiDevice<Error = E>,
+{
+    type Error = Mcp795xxError<E>;
+
+    fn datetime(&mut self) -> Result<NaiveDateTime, Self::Error> {
+        let mut data = [0; 7];
+        self.read_registers(RegisterAdresses::RTCSEC as u8, &mut data)?;
+
+        debug!("regs: {}", data);
+
+        Ok(NaiveDate::from_ymd_opt(
+            bcd2bin(data[6]) as i32 + 2000,
+            bcd2bin(data[5] & 0x1F) as u32,
+            bcd2bin(data[4] & 0x3F) as u32,
+        )
+        .ok_or(Self::Error::CalendarError)?
+        .and_hms_opt(
+            bcd2bin(data[2] & 0x3F) as u32,
+            bcd2bin(data[1] & 0x7F) as u32,
+            bcd2bin(data[0] & 0x7F) as u32,
+        )
+        .ok_or(Self::Error::CalendarError)?)
+    }
+
+    fn set_datetime(&mut self, datetime: &NaiveDateTime) -> Result<(), Self::Error> {
         Ok(())
     }
 }
