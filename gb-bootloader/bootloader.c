@@ -39,8 +39,8 @@
 #define MENU_GAME_MENU 1
 #define MENU_SYSTEM_INFO 2
 #define MENU_RGB_TESTER 3
-#define MENU_GAME_SETTINGS 4
-#define MENU_RTC_SETTINGS 5
+#define MENU_RTC_SETTINGS 4
+#define MENU_SETTINGS 5
 
 #define MAX_GAMES_RENDER_NUM 16
 #define CHARS_PER_ROW 20
@@ -126,6 +126,8 @@ static uint8_t gDMGHighlightLine = 0xFF;
 
 struct SharedGameboyData *s_sharedData = (struct SharedGameboyData *)(0xA000);
 #define s_GamesCount s_sharedData->number_of_roms
+
+static struct TimePoint real_rtc_;
 
 void sanitizeRTCReal(struct TimePoint *rtc);
 
@@ -326,7 +328,7 @@ uint8_t drawscreenGameMenu(void)
 {
     if (buttonPressed(J_SELECT))
     {
-        return MENU_SYSTEM_INFO;
+        return MENU_SETTINGS;
     }
 
     if (s_GamesCount)
@@ -334,20 +336,9 @@ uint8_t drawscreenGameMenu(void)
         gCursor = gLastSelectedGame;
         gPageCursor = gLastSelectedGamePage;
 
-        if (buttonPressed(J_START))
+        if (buttonPressed(J_A))
         {
-            return MENU_GAME_SETTINGS;
-        }
-        else if (buttonPressed(J_A))
-        {
-            if (getRomInfoByteForIndex(gCursor) == 1)
-            {
-                return MENU_RTC_SETTINGS;
-            }
-            else
-            {
-                startGame(gCursor);
-            }
+            startGame(gCursor);
         }
 
         moveCursor(s_GamesCount);
@@ -357,6 +348,7 @@ uint8_t drawscreenGameMenu(void)
 
     if (gForceDrawScreen)
         renderGamelist(gPageCursor, gCursor);
+
     return MENU_GAME_MENU;
 }
 
@@ -367,23 +359,23 @@ uint8_t drawscreenSystemInfo(void)
     {
         return MENU_GAME_MENU;
     }
-    else if (buttonPressed(J_START))
+    else if (buttonPressed(J_B))
     {
-        gotoxy(0, 14);
-        printf("Started RP2040 BTLD");
-        wait_vbl_done();
-        disable_interrupts();
-        // *SMEM_ADDR_RP2040_BOOTLOADER = 1;
-        wait_vbl_done();
-        while (1)
-        {
-            wait_vbl_done();
-        }
+        return MENU_SETTINGS;
     }
-    else if (buttonPressed(J_RIGHT))
-    {
-        return MENU_RGB_TESTER;
-    }
+    // else if (buttonPressed(J_START))
+    // {
+    //     gotoxy(0, 14);
+    //     printf("Started RP2040 BTLD");
+    //     wait_vbl_done();
+    //     disable_interrupts();
+    //     // *SMEM_ADDR_RP2040_BOOTLOADER = 1;
+    //     wait_vbl_done();
+    //     while (1)
+    //     {
+    //         wait_vbl_done();
+    //     }
+    // }
 
     if (gForceDrawScreen)
     {
@@ -419,9 +411,9 @@ uint8_t drawscreenRGBTester(void)
     {
         return MENU_GAME_MENU;
     }
-    else if (buttonPressed(J_LEFT))
+    else if (buttonPressed(J_B))
     {
-        return MENU_SYSTEM_INFO;
+        return MENU_SETTINGS;
     }
 
     if (gForceDrawScreen)
@@ -448,48 +440,9 @@ inline void drawscreenGameSettingsUI(void)
     gotoxy(0, 4);
 }
 
-uint8_t drawscreenGameSettingsSavegameHook(void)
-{
-    gHighlightOffset = 5;
-    moveCursor(3);
-
-    if (buttonPressed(J_B))
-    {
-        return MENU_GAME_MENU;
-    }
-    else if (buttonPressed(J_START))
-    {
-        if (getRomInfoByteForIndex(gLastSelectedGame) == 1)
-        {
-            gSelectedMode = gCursor;
-            return MENU_RTC_SETTINGS;
-        }
-        else
-        {
-            startGame(gLastSelectedGame);
-        }
-    }
-
-    if (gForceDrawScreen)
-    {
-        gSelectedMode = 0xFF;
-        drawscreenGameSettingsUI();
-        printf("[Savegame Hook]");
-        gotoxy(2, 5);
-        printf("Off");
-        gotoxy(2, 6);
-        printf("Mode 1 (sel + b)");
-        gotoxy(2, 7);
-        printf("Mode 2 (sel + dwn)");
-    }
-
-    return MENU_GAME_SETTINGS;
-}
-
-uint8_t drawscreenGameSettingsRTC(void)
+uint8_t drawscreenSettingsRTC(void)
 {
     static uint8_t selectionX; // addresses fields from right to left
-    struct TimePoint real_rtc_;
     struct TimePoint *real_rtc = &real_rtc_;
     uint8_t gameStart = 0;
     uint8_t *modval = (uint8_t *)real_rtc;
@@ -501,11 +454,7 @@ uint8_t drawscreenGameSettingsRTC(void)
 
     if (buttonPressed(J_B))
     {
-        return MENU_GAME_MENU;
-    }
-    else if (buttonPressed(J_START))
-    {
-        gameStart = 1;
+        return MENU_SETTINGS;
     }
     else if (buttonPressed(J_A))
     {
@@ -548,15 +497,10 @@ uint8_t drawscreenGameSettingsRTC(void)
         gForceDrawScreen = 1;
     }
 
-    if (gameStart)
-    {
-        startGame(gLastSelectedGame);
-    }
-
     if (gForceDrawScreen)
     {
-        drawscreenGameSettingsUI();
-        printf("[RTC config]");
+        gotoxy(0, 0);
+        printf("***   Set Clock  ***");
 
         gotoxy(0, 10);
         printf("Real:");
@@ -591,6 +535,49 @@ uint8_t drawscreenGameSettingsRTC(void)
     return MENU_RTC_SETTINGS;
 }
 
+uint8_t drawscreenSettings(void)
+{
+    moveCursor(3);
+
+    if (gForceDrawScreen)
+    {
+        gotoxy(0, 0);
+        printf("***   Settings   ***");
+
+        gotoxy(0, 1);
+        printf("RTC config");
+
+        gotoxy(0, 2);
+        printf("LED tester");
+
+        gotoxy(0, 3);
+        printf("System info");
+    }
+
+    if (buttonPressed(J_B))
+    {
+        return MENU_GAME_MENU;
+    }
+    else if (buttonPressed(J_A))
+    {
+        switch (gCursor)
+        {
+        case 0:
+            return MENU_RTC_SETTINGS;
+        case 1:
+            return MENU_RGB_TESTER;
+        case 2:
+            return MENU_SYSTEM_INFO;
+        default:
+            break;
+        }
+
+        return MENU_GAME_MENU;
+    }
+
+    return MENU_SETTINGS;
+}
+
 void drawscreen(void)
 {
     static uint8_t curScreen = MENU_GAME_MENU;
@@ -598,12 +585,8 @@ void drawscreen(void)
 
     switch (curScreen)
     {
-    case MENU_GAME_SETTINGS:
-        nextScreen = drawscreenGameSettingsSavegameHook();
-        break;
-
     case MENU_RTC_SETTINGS:
-        nextScreen = drawscreenGameSettingsRTC();
+        nextScreen = drawscreenSettingsRTC();
         break;
 
     case MENU_RGB_TESTER:
@@ -612,6 +595,10 @@ void drawscreen(void)
 
     case MENU_SYSTEM_INFO:
         nextScreen = drawscreenSystemInfo();
+        break;
+
+    case MENU_SETTINGS:
+        nextScreen = drawscreenSettings();
         break;
 
     case MENU_GAME_MENU:
