@@ -44,4 +44,4 @@ embedded-sdmmc = { version= "0.8.0", features = ["defmt-log"], default-features 
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 
 [build-dependencies]
-built = { version = "0.7", features = ["git2"] }
+built = { version = "0.7", features = ["git2", "chrono"] }

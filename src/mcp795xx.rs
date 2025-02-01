@@ -1,11 +1,9 @@
-use embedded_hal_1::spi::{Operation, SpiDevice};
+#![allow(unused)]
 
-use defmt::{debug, info, warn};
+use embedded_hal_1::spi::{Operation, SpiDevice};
 use {defmt_serial as _, panic_probe as _};
 
-pub use rtcc::{
-    DateTimeAccess, Datelike, Hours, NaiveDate, NaiveDateTime, NaiveTime, Rtcc, Timelike,
-};
+pub use rtcc::{DateTimeAccess, Datelike, NaiveDate, NaiveDateTime, Rtcc, Timelike};
 
 pub struct Mcp795xx<SPI> {
     spi: SPI,
@@ -14,7 +12,8 @@ pub struct Mcp795xx<SPI> {
 #[derive(Copy, Clone, Debug)]
 pub enum Mcp795xxError<E> {
     Spi(E),
-    CalendarError, // Add other errors for your driver here.
+    InvalidInputData,
+    CalendarError,
 }
 
 #[allow(unused)]
@@ -78,7 +77,7 @@ enum RegisterAdresses {
     PWRUPMTH = 0x1F,
 }
 
-fn decimal_to_packed_bcd(dec: u8) -> u8 {
+fn bin2bcd(dec: u8) -> u8 {
     ((dec / 10) << 4) | (dec % 10)
 }
 
@@ -125,6 +124,34 @@ where
 
         Ok(())
     }
+
+    pub fn write_registers(&mut self, addr: u8, payload: &[u8]) -> Result<(), Mcp795xxError<E>> {
+        self.spi
+            .transaction(&mut [
+                Operation::Write(&[Instructions::WRITE as u8, addr]),
+                Operation::Write(payload),
+            ])
+            .map_err(Mcp795xxError::Spi)?;
+
+        Ok(())
+    }
+
+    pub fn is_oscillator_running(&mut self) -> Result<bool, Mcp795xxError<E>> {
+        let data = self.read_register(RegisterAdresses::RTCWKDAY as u8)?;
+        Ok((data & 0x20u8) != 0)
+    }
+
+    pub fn enable_oscillator(&mut self) -> Result<(), Mcp795xxError<E>> {
+        let sec = self.read_register(RegisterAdresses::RTCSEC as u8)?;
+        self.write_register(RegisterAdresses::RTCSEC as u8, sec | 0x80u8)?;
+        Ok(())
+    }
+
+    pub fn disable_oscillator(&mut self) -> Result<(), Mcp795xxError<E>> {
+        let sec = self.read_register(RegisterAdresses::RTCSEC as u8)?;
+        self.write_register(RegisterAdresses::RTCSEC as u8, sec & 0x80u8)?;
+        Ok(())
+    }
 }
 
 impl<SPI, E> DateTimeAccess for Mcp795xx<SPI>
@@ -136,8 +163,6 @@ where
     fn datetime(&mut self) -> Result<NaiveDateTime, Self::Error> {
         let mut data = [0; 7];
         self.read_registers(RegisterAdresses::RTCSEC as u8, &mut data)?;
-
-        debug!("regs: {}", data);
 
         Ok(NaiveDate::from_ymd_opt(
             bcd2bin(data[6]) as i32 + 2000,
@@ -154,6 +179,41 @@ where
     }
 
     fn set_datetime(&mut self, datetime: &NaiveDateTime) -> Result<(), Self::Error> {
+        let mut data = [0; 7];
+
+        if datetime.year() < 2000 || datetime.year() > 2099 {
+            return Err(Self::Error::InvalidInputData);
+        }
+
+        // read register first to preserve config bits
+        self.read_registers(RegisterAdresses::RTCSEC as u8, &mut data)?;
+
+        let is_oscillator_running = data[3] & 20u8 != 0;
+
+        if is_oscillator_running {
+            self.disable_oscillator()?;
+        }
+
+        data[0] = bin2bcd(datetime.second() as u8); // no need to preserve here, osc always off
+        data[1] = (data[1] & 0x80u8) | bin2bcd(datetime.minute() as u8);
+        data[2] = bin2bcd(datetime.hour() as u8); // this also sets 24 hour format
+        data[3] = (data[3] & 0x08u8) | datetime.weekday().number_from_monday() as u8;
+        data[4] = bin2bcd(datetime.day() as u8);
+        data[5] = bin2bcd(datetime.month() as u8);
+        data[6] = bin2bcd((datetime.year() - 2000) as u8);
+
+        /* Always write the date and month using a separate Write command.
+         * This is a workaround for a know silicon issue that some combinations
+         * of date and month values may result in the date being reset to 1.
+         */
+        self.write_registers(RegisterAdresses::RTCSEC as u8, &data[0..5])?;
+        self.write_registers(RegisterAdresses::RTCMTH as u8, &data[5..])?;
+
+        if is_oscillator_running {
+            // if it was running before enable it again
+            self.enable_oscillator()?;
+        }
+
         Ok(())
     }
 }

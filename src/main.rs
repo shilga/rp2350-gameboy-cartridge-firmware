@@ -40,6 +40,7 @@ use embedded_sdmmc::VolumeManager;
 use gb_pio::GbRamRead;
 use rom_info::{MbcType, RomInfo};
 use rp2350_core_voltage::vreg_set_voltage;
+use rtcc::DateTime;
 use smart_leds::RGB8;
 
 use core::cell::RefCell;
@@ -81,8 +82,8 @@ mod rom_info;
 
 mod rp2350_core_voltage;
 
-mod mcp975xx;
-use mcp975xx::{DateTimeAccess, Mcp795xx};
+mod mcp795xx;
+use mcp795xx::{DateTimeAccess, Mcp795xx};
 
 // Include the generated-file as a separate module
 pub mod built_info {
@@ -451,14 +452,23 @@ async fn main(spawner: Spawner) {
         info!("weekd_status2 {:#x}", weekd_status2);
     }
 
+    let built_dt = DateTime::parse_from_rfc2822(built_info::BUILT_TIME_UTC)
+        .unwrap()
+        .naive_utc();
+    info!("built_dt: {}", defmt::Debug2Format(&built_dt));
+    let rtc_dt = rtc.datetime().unwrap_or_default();
+    info!("rtc_dt: {}", defmt::Debug2Format(&rtc_dt));
+    if built_dt > rtc_dt {
+        info!("setting time to build time");
+        rtc.set_datetime(&built_dt).unwrap();
+    }
+
     let sec_status = rtc.read_register(1).unwrap();
     info!("sec_status {:#x}", sec_status);
     if sec_status & 0x80 == 0 {
         info!("enabling RTC oscillator");
         rtc.write_register(1, 0x80u8).unwrap();
     }
-
-    info!("rtc: {}", defmt::Debug2Format(&rtc.datetime()));
 
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
