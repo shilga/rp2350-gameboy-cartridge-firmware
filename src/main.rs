@@ -498,6 +498,7 @@ async fn main(spawner: Spawner) {
             &mut reset_pin,
             &mut hyperram,
             ws2812,
+            &mut rtc,
         );
 
         gb_bootloader.run().await

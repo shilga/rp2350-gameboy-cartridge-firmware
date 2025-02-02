@@ -86,7 +86,8 @@ struct SharedGameboyData
     uint8_t versionPatch;
     uint16_t loaded_banks;
     uint16_t num_banks;
-    uint16_t reserved;
+    uint8_t msg_id_gb_2_rp;
+    uint8_t msg_id_rp_2_gb;
     uint8_t number_of_roms;
     char rom_names[];
 };
@@ -217,6 +218,17 @@ void resetHighlights(void)
     }
     resetSelection();
     gDMGHighlightLine = 0xFF;
+}
+
+void runCommandAndWait(uint8_t cmd)
+{
+    s_sharedData->msg_id_gb_2_rp++;
+    *ADDR_BOOTLOADER_CMD_EXEC = cmd;
+
+    while (s_sharedData->msg_id_gb_2_rp != s_sharedData->msg_id_rp_2_gb)
+    {
+        vsync();
+    }
 }
 
 void renderGamelist(uint8_t first, uint8_t selected)
@@ -450,6 +462,9 @@ uint8_t drawscreenSettingsRTC(void)
     if (gForceDrawScreen)
     {
         selectionX = 1;
+
+        runCommandAndWait(0x0C);
+        memcpy(real_rtc, (void *)(0xB000), sizeof(struct TimePoint));
     }
 
     if (buttonPressed(J_B))
@@ -458,7 +473,10 @@ uint8_t drawscreenSettingsRTC(void)
     }
     else if (buttonPressed(J_A))
     {
-        gameStart = 1;
+        memcpy((void *)(0xB000), real_rtc, sizeof(struct TimePoint));
+        runCommandAndWait(0xD);
+
+        return MENU_SETTINGS;
     }
     else if (buttonPressed(J_UP))
     {
@@ -664,6 +682,8 @@ void main(void)
     }
 
     memset(SMEM_ADDR_GAME_SELECTOR, 42, 16); // TODO: Figure out, why first RAM write is not working correctly
+
+    s_sharedData->msg_id_gb_2_rp = 1;
 
     font_init();
     // use pallete 2 as background as sprites have transparent background

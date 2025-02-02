@@ -10,8 +10,9 @@ use defmt::{info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_rp::pio::{Instance, StateMachineRx};
 use embassy_time::{Duration, Instant, Ticker};
-use embedded_hal_1::digital::OutputPin;
+use embedded_hal_1::digital::{Error as HalDigitalError, OutputPin};
 use embedded_sdmmc::{BlockDevice, TimeSource, VolumeManager};
+use rtcc::{DateTimeAccess, Datelike, NaiveDate, Timelike};
 use smart_leds::RGB8;
 
 #[repr(C, packed(1))]
@@ -24,8 +25,19 @@ struct SharedGameboyData {
     version_patch: u8,
     loaded_banks: u16,
     num_banks: u16,
-    reserved: u16,
+    msg_id_gb_2_rp: u8,
+    msg_id_rp_2_gb: u8,
     num_roms: u8,
+}
+
+#[repr(C, packed(1))]
+struct TimePoint {
+    second: u8,
+    minute: u8,
+    hour: u8,
+    day: u8,
+    month: u8,
+    year: u8, // offset from 1970
 }
 
 pub struct GbBootloader<
@@ -38,22 +50,24 @@ pub struct GbBootloader<
     const MAX_VOLUMES: usize,
     PIO,
     const SM: usize,
-    Pin,
     PinError,
+    DTAError,
 > where
     D: BlockDevice,
     T: TimeSource,
     PIO: Instance,
-    Pin: OutputPin<Error = PinError>,
+    PinError: HalDigitalError,
+    DTAError: core::fmt::Debug,
 {
     volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
     gb_rom_memory: &'a mut [u8],
     gb_ram_memory: &'a mut [u8],
     bank0_base_addr_ptr: *mut *mut u8,
-    reset_pin: &'a mut Pin,
+    reset_pin: &'a mut dyn OutputPin<Error = PinError>,
     hyperram: &'a mut dyn HyperRamWriteBlocking,
     led: &'a mut dyn Ws2812Led,
+    rtc: &'a mut dyn DateTimeAccess<Error = DTAError>,
 }
 
 impl<
@@ -66,14 +80,15 @@ impl<
         const MAX_VOLUMES: usize,
         PIO,
         const SM: usize,
-        Pin,
         PinError,
-    > GbBootloader<'a, 'd, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES, PIO, SM, Pin, PinError>
+        DTAError,
+    > GbBootloader<'a, 'd, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES, PIO, SM, PinError, DTAError>
 where
     D: BlockDevice,
     T: TimeSource,
     PIO: Instance,
-    Pin: OutputPin<Error = PinError>,
+    PinError: HalDigitalError,
+    DTAError: core::fmt::Debug,
 {
     pub fn new(
         volume_mgr: &'a mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
@@ -81,10 +96,12 @@ where
         gb_rom_memory: &'a mut [u8],
         gb_ram_memory: &'a mut [u8],
         bank0_base_addr_ptr: *mut *mut u8,
-        reset_pin: &'a mut Pin,
+        reset_pin: &'a mut dyn OutputPin<Error = PinError>,
         hyperram: &'a mut dyn HyperRamWriteBlocking,
         led: &'a mut dyn Ws2812Led,
-    ) -> GbBootloader<'a, 'd, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES, PIO, SM, Pin, PinError> {
+        rtc: &'a mut dyn DateTimeAccess<Error = DTAError>,
+    ) -> GbBootloader<'a, 'd, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES, PIO, SM, PinError, DTAError>
+    {
         Self {
             volume_mgr,
             rx_fifo,
@@ -94,6 +111,7 @@ where
             reset_pin,
             hyperram,
             led,
+            rtc,
         }
     }
 
@@ -117,6 +135,7 @@ where
                 .as_mut()
                 .unwrap()
         };
+        shared_data.msg_id_rp_2_gb = 0;
         let git_short_hash =
             u32::from_str_radix(built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("0"), 16).unwrap_or(0);
         shared_data.git_sha1 = git_short_hash;
@@ -210,14 +229,63 @@ where
 
                     info!("Addr {:#x} data {:#x}", addr, data);
 
-                    if addr == 0x6000u32 && data == 42 {
-                        let game_name_mem = &mut self.gb_ram_memory[0x1000..0x1011];
-                        info!("game_name_mem {}", game_name_mem);
-                        game_name_cstr =
-                            unsafe { CStr::from_ptr(game_name_mem.as_ptr() as *const c_char) };
-                        info!("Selected game: {}", game_name_cstr.to_str().unwrap());
+                    if addr == 0x6000u32 {
+                        match data {
+                            42 => {
+                                let game_name_mem = &mut self.gb_ram_memory[0x1000..0x1011];
+                                info!("game_name_mem {}", game_name_mem);
+                                game_name_cstr = unsafe {
+                                    CStr::from_ptr(game_name_mem.as_ptr() as *const c_char)
+                                };
+                                info!("Selected game: {}", game_name_cstr.to_str().unwrap());
 
-                        break;
+                                break;
+                            }
+                            0x0c => {
+                                info!("RTC Read command");
+                                let dt = self.rtc.datetime().unwrap_or_default();
+                                let tp: &mut TimePoint = unsafe {
+                                    (self.gb_ram_memory[0x1000..].as_mut_ptr() as *mut TimePoint)
+                                        .as_mut()
+                                        .unwrap()
+                                };
+                                tp.second = dt.second() as u8;
+                                tp.minute = dt.minute() as u8;
+                                tp.hour = dt.hour() as u8;
+                                tp.day = dt.day0() as u8;
+                                tp.month = dt.month0() as u8;
+                                tp.year = (dt.year() - 1970) as u8;
+
+                                shared_data.msg_id_rp_2_gb = shared_data.msg_id_gb_2_rp;
+                            }
+                            0x0d => {
+                                info!("RTC Write command");
+                                let tp: &TimePoint = unsafe {
+                                    (self.gb_ram_memory[0x1000..].as_mut_ptr() as *mut TimePoint)
+                                        .as_ref()
+                                        .unwrap()
+                                };
+                                match match NaiveDate::from_ymd_opt(
+                                    tp.year as i32 + 1970,
+                                    tp.month as u32 + 1,
+                                    tp.day as u32 + 1,
+                                ) {
+                                    None => None,
+                                    Some(nd) => nd.and_hms_opt(tp.hour as u32, tp.minute as u32, 0),
+                                } {
+                                    None => warn!("Could not parse received TimePoint"),
+                                    Some(dt) => {
+                                        info!("dt: {}", defmt::Debug2Format(&dt));
+                                        self.rtc.set_datetime(&dt).unwrap();
+                                    }
+                                };
+
+                                shared_data.msg_id_rp_2_gb = shared_data.msg_id_gb_2_rp;
+                            }
+                            _ => {
+                                warn!("Unknown command received");
+                            }
+                        }
                     }
                 }
             }
