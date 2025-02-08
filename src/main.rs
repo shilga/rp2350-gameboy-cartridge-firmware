@@ -68,7 +68,7 @@ use gb_pio::{
 };
 
 mod gb_dma;
-use gb_dma::{GbReadDmaConfig, GbReadSniffDmaConfig, GbWriteDmaConfig};
+use gb_dma::{GbDmaCommandMachine, GbReadDmaConfig, GbReadSniffDmaConfig};
 
 mod gb_mbc;
 use gb_mbc::{Mbc, Mbc1, Mbc3, Mbc5, NoMbc};
@@ -166,6 +166,8 @@ static SPI_BUS: StaticCell<CriticalSectionMutex<RefCell<spi::Spi<SPI0, Blocking>
     StaticCell::new();
 
 static WS2812: StaticCell<Ws2812Spi<SPI1>> = StaticCell::new();
+
+static GB_DMA_COMMAND_ENGINE: StaticCell<GbDmaCommandMachine> = StaticCell::new();
 
 extern "C" {
     static mut _s_gb_rom_memory: u8;
@@ -360,21 +362,15 @@ async fn main(spawner: Spawner) {
         &gb_data_out_pio,
     );
 
-    let _read_dma_saveram = GbReadDmaConfig::new(
-        p.DMA_CH3,
-        p.DMA_CH4,
-        p.DMA_CH5,
-        ptr::addr_of_mut!(gb_ram_ptr),
+    // DMA_COMMAND_ENGINE must be allocated statically as all the command blocks need to be located at a fixed position
+    let dma_command_machine = GB_DMA_COMMAND_ENGINE.init(GbDmaCommandMachine::new(
+        p.DMA_CH3, p.DMA_CH4, p.DMA_CH5, p.DMA_CH6, p.DMA_CH7,
+    ));
+    dma_command_machine.init(
         &gb_ram_read_pio,
-        &gb_data_out_pio,
-    );
-
-    let _write_dma_saveram = GbWriteDmaConfig::new(
-        p.DMA_CH6,
-        p.DMA_CH7,
-        p.DMA_CH8,
-        ptr::addr_of_mut!(gb_ram_ptr),
         &gb_ram_write_pio,
+        &gb_data_out_pio,
+        ptr::addr_of_mut!(gb_ram_ptr),
     );
 
     gb_rom_lower_pio.start();
