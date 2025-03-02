@@ -7,6 +7,7 @@ use embassy_rp::{into_ref, Peripheral, PeripheralRef};
 use defmt::info;
 
 use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
+use crate::gb_mbc::MbcRamControl;
 
 const REG_ALIAS_SET_BITS: u32 = 0x2u32 << 12u32;
 static mut DEV_NULL: u32 = 0;
@@ -257,9 +258,10 @@ pub struct GbDmaCommandMachine<'d> {
     saveram_write_addr_read_target_addr: u32,
     ram_read_ctrl_reg: u32,
     ram_write_ctrl_reg: u32,
-    ram_dummy_read_commands: [DmaCommand; 5],
+    ram_disabled_read_commands: [DmaCommand; 5],
     ram_read_commands: [DmaCommand; 5],
     ram_write_commands: [DmaCommand; 5],
+    ram_disabled_write_commands: [DmaCommand; 5],
     current_ram_read_command: *const DmaCommand,
     current_saveram_write_commands: *const DmaCommand,
 }
@@ -296,7 +298,7 @@ impl<'d> GbDmaCommandMachine<'d> {
             saveram_write_addr_read_target_addr: 0,
             ram_read_ctrl_reg: 0,
             ram_write_ctrl_reg: 0,
-            ram_dummy_read_commands: [DmaCommand {
+            ram_disabled_read_commands: [DmaCommand {
                 read_addr: core::ptr::null(),
                 write_addr: core::ptr::null(),
             }; 5],
@@ -308,13 +310,17 @@ impl<'d> GbDmaCommandMachine<'d> {
                 read_addr: core::ptr::null(),
                 write_addr: core::ptr::null(),
             }; 5],
+            ram_disabled_write_commands: [DmaCommand {
+                read_addr: core::ptr::null(),
+                write_addr: core::ptr::null(),
+            }; 5],
             current_ram_read_command: core::ptr::null(),
             current_saveram_write_commands: core::ptr::null(),
         }
     }
 
     pub fn init(
-        &'static mut self, // enforce static lifetime of self
+        &mut self,
         ram_read_addr_read_target: &dyn DmaReadTarget<ReceivedWord = u32>,
         saveram_write_addr_read_target: &dyn DmaReadTarget<ReceivedWord = u32>,
         write_target: &dyn DmaWriteTarget<TransmittedWord = u8>,
@@ -346,33 +352,14 @@ impl<'d> GbDmaCommandMachine<'d> {
         ram_write_ctrl_reg.set_en(true);
         self.ram_write_ctrl_reg = ram_write_ctrl_reg.0;
 
-        let dev_null_ptr_ptr = unsafe { ptr::addr_of!(DEV_NULL_PTR) };
-
-        // load the settings for this transfer into the MEMORY_ACCESOR_DMA control register
-        self.ram_dummy_read_commands[0] = DmaCommand {
-            read_addr: ptr::addr_of!(self.ram_read_ctrl_reg),
-            write_addr: mem_accessor_regs.al1_ctrl().as_ptr(),
-        };
-        // load the addr of devnull into the write addr of MEMORY_ACCESSOR_DMA
-        self.ram_dummy_read_commands[1] = DmaCommand {
-            read_addr: dev_null_ptr_ptr as *const u32,
-            write_addr: mem_accessor_regs.write_addr().as_ptr(),
-        };
-        // load the addr from the rx-fifo of the PIO-SM triggering this transfer
-        self.ram_dummy_read_commands[2] = DmaCommand {
-            read_addr: ram_read_addr_read_target.rx_address_count().0 as *const u32,
-            write_addr: mem_accessor_regs.read_addr().as_ptr(),
-        };
-        // load the base addr, write it into the read-addr of the MEMORY_ACCESSOR_DMA, or-ing it with the addr received and trigger the MEMORY_ACCESSOR_DMA transfer
-        self.ram_dummy_read_commands[3] = DmaCommand {
-            read_addr: ram_base_addr_ptr as *const u32,
-            write_addr: mem_accessor_regs.al3_read_addr_trig().as_ptr(),
-        };
-
+        self.ram_disabled_read_commands =
+            self.create_ram_disabled_command_blocks(ram_read_addr_read_target, ram_base_addr_ptr);
         self.ram_read_commands =
             self.create_ram_read_command_blocks(ram_read_addr_read_target, ram_base_addr_ptr);
         self.current_ram_read_command = self.ram_read_commands.as_ptr();
 
+        self.ram_disabled_write_commands =
+            self.create_ram_disabled_write_command_blocks(saveram_write_addr_read_target);
         self.ram_write_commands =
             self.create_ram_write_command_blocks(saveram_write_addr_read_target, ram_base_addr_ptr);
         self.current_saveram_write_commands = self.ram_write_commands.as_ptr();
@@ -520,6 +507,42 @@ impl<'d> GbDmaCommandMachine<'d> {
         ]
     }
 
+    fn create_ram_disabled_command_blocks(
+        &self,
+        ram_read_addr_read_target: &dyn DmaReadTarget<ReceivedWord = u32>,
+        ram_base_addr_ptr: *mut *mut u8,
+    ) -> [DmaCommand; 5] {
+        let mem_accessor_regs = self.dma_ch_mem_accessor.regs();
+
+        [
+            // load the settings for this transfer into the MEMORY_ACCESOR_DMA control register
+            DmaCommand {
+                read_addr: ptr::addr_of!(self.ram_read_ctrl_reg),
+                write_addr: mem_accessor_regs.al1_ctrl().as_ptr(),
+            },
+            // load the addr of devnull into the write addr of MEMORY_ACCESSOR_DMA
+            DmaCommand {
+                read_addr: unsafe { ptr::addr_of!(DEV_NULL_PTR) } as *const u32,
+                write_addr: mem_accessor_regs.write_addr().as_ptr(),
+            },
+            // load the addr from the rx-fifo of the PIO-SM triggering this transfer
+            DmaCommand {
+                read_addr: ram_read_addr_read_target.rx_address_count().0 as *const u32,
+                write_addr: mem_accessor_regs.read_addr().as_ptr(),
+            },
+            // load the base addr, write it into the read-addr of the MEMORY_ACCESSOR_DMA, or-ing it with the addr received and trigger the MEMORY_ACCESSOR_DMA transfer
+            DmaCommand {
+                read_addr: ram_base_addr_ptr as *const u32,
+                write_addr: (mem_accessor_regs.al3_read_addr_trig().as_ptr() as u32
+                    | REG_ALIAS_SET_BITS) as *const u32,
+            },
+            DmaCommand {
+                read_addr: core::ptr::null(),
+                write_addr: core::ptr::null(),
+            },
+        ]
+    }
+
     fn create_ram_write_command_blocks(
         &self,
         ram_write_addr_read_target: &dyn DmaReadTarget<ReceivedWord = u32>,
@@ -554,5 +577,52 @@ impl<'d> GbDmaCommandMachine<'d> {
                 write_addr: core::ptr::null(),
             },
         ]
+    }
+
+    fn create_ram_disabled_write_command_blocks(
+        &self,
+        ram_write_addr_read_target: &dyn DmaReadTarget<ReceivedWord = u32>,
+    ) -> [DmaCommand; 5] {
+        let mem_accessor_regs = self.dma_ch_mem_accessor.regs();
+
+        [
+            // setup MEMORY_ACCESSOR_DMA for this write to RAM transaction
+            DmaCommand {
+                read_addr: ptr::addr_of!(self.ram_write_ctrl_reg),
+                write_addr: mem_accessor_regs.al1_ctrl().as_ptr(),
+            },
+            // dummy load the addr from the rx-fifo of the PIO-SM triggering this transfer
+            DmaCommand {
+                read_addr: ram_write_addr_read_target.rx_address_count().0 as *const u32,
+                write_addr: unsafe { ptr::addr_of!(DEV_NULL) } as *const u32,
+            },
+            // load the addr of _devNull into write addr of MEMORY_ACCESSOR_DMA
+            DmaCommand {
+                read_addr: unsafe { ptr::addr_of!(DEV_NULL_PTR) } as *const u32,
+                write_addr: (mem_accessor_regs.write_addr().as_ptr() as u32 | REG_ALIAS_SET_BITS)
+                    as *const u32,
+            },
+            // load the addr of the rx-fifo which will have the data to be written to RAM into the read register of MEMORY_ACCESSOR_DMA and trigger it's transfer
+            DmaCommand {
+                read_addr: ptr::addr_of!(self.saveram_write_addr_read_target_addr),
+                write_addr: mem_accessor_regs.al3_read_addr_trig().as_ptr(),
+            },
+            DmaCommand {
+                read_addr: core::ptr::null(),
+                write_addr: core::ptr::null(),
+            },
+        ]
+    }
+}
+
+impl<'d> MbcRamControl for GbDmaCommandMachine<'d> {
+    fn enable_ram_access(&mut self) {
+        self.current_ram_read_command = self.ram_read_commands.as_ptr();
+        self.current_saveram_write_commands = self.ram_write_commands.as_ptr();
+    }
+
+    fn disable_ram_access(&mut self) {
+        self.current_ram_read_command = self.ram_disabled_read_commands.as_ptr();
+        self.current_saveram_write_commands = self.ram_disabled_write_commands.as_ptr();
     }
 }

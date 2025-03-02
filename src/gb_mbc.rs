@@ -2,6 +2,11 @@ use embassy_rp::pio::{Instance, StateMachineRx};
 
 use core::ptr::{self, NonNull};
 
+pub trait MbcRamControl {
+    fn enable_ram_access(&mut self);
+    fn disable_ram_access(&mut self);
+}
+
 pub trait Mbc {
     fn run(&mut self);
 }
@@ -17,14 +22,20 @@ impl Mbc for NoMbc {
 pub struct Mbc1<'a, 'd, PIO: Instance, const SM: usize> {
     rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
     current_rom_bank_pointer: NonNull<u32>,
+    ram_control: &'a mut dyn MbcRamControl,
 }
 
 impl<'a, 'd, PIO: Instance, const SM: usize> Mbc1<'a, 'd, PIO, SM> {
-    pub fn new(rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>, current_rom_bank: *mut u32) -> Self {
+    pub fn new(
+        rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
+        current_rom_bank: *mut u32,
+        ram_control: &'a mut dyn MbcRamControl,
+    ) -> Self {
         let current_rom_bank_pointer = NonNull::new(current_rom_bank).unwrap();
         Self {
             rx_fifo,
             current_rom_bank_pointer,
+            ram_control,
         }
     }
 }
@@ -47,7 +58,12 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc1<'a, 'd, PIO, SM> {
 
             match addr & 0xE000u32 {
                 0x0000u32 => {
-                    // ram enable
+                    let ram_enabled = (data & 0x0F) == 0x0A;
+                    if ram_enabled {
+                        self.ram_control.enable_ram_access();
+                    } else {
+                        self.ram_control.disable_ram_access();
+                    }
                 }
                 0x2000u32 => {
                     rom_bank_low = data & 0x1f;
@@ -93,6 +109,7 @@ pub struct Mbc3<'a, 'd, PIO: Instance, const SM: usize> {
     current_rom_bank_pointer: NonNull<u32>,
     current_ram_bank_pointer: NonNull<*mut u8>,
     gb_ram_memory: &'a mut [u8],
+    ram_control: &'a mut dyn MbcRamControl,
 }
 
 impl<'a, 'd, PIO: Instance, const SM: usize> Mbc3<'a, 'd, PIO, SM> {
@@ -101,6 +118,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc3<'a, 'd, PIO, SM> {
         current_rom_bank: *mut u32,
         ram_bank_pointer: *mut *mut u8,
         gb_ram_memory: &'a mut [u8],
+        ram_control: &'a mut dyn MbcRamControl,
     ) -> Self {
         let current_rom_bank_pointer = NonNull::new(current_rom_bank).unwrap();
         let current_ram_bank_pointer = NonNull::new(ram_bank_pointer).unwrap();
@@ -109,6 +127,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc3<'a, 'd, PIO, SM> {
             current_rom_bank_pointer,
             current_ram_bank_pointer,
             gb_ram_memory,
+            ram_control,
         }
     }
 }
@@ -117,8 +136,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
     fn run(&mut self) {
         let mut rom_bank = 1u8;
         let mut rom_bank_new = 1u8;
-        let mut ram_enabled = false;
-        let mut ram_enabled_new = false;
         let mut ram_bank = 1u8;
         let mut ram_bank_new = 1u8;
 
@@ -132,7 +149,12 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
 
             match addr & 0xE000u32 {
                 0x0000u32 => {
-                    ram_enabled_new = data & 0xF == 0xAA;
+                    let ram_enabled = (data & 0x0F) == 0x0A;
+                    if ram_enabled {
+                        self.ram_control.enable_ram_access();
+                    } else {
+                        self.ram_control.disable_ram_access();
+                    }
                 }
                 0x2000u32 => {
                     rom_bank_new = (data & 0x7F);
@@ -160,12 +182,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
                 };
             }
 
-            if ram_enabled != ram_enabled_new {
-                ram_enabled = ram_enabled_new;
-
-                // todo: enable/disable ram access
-            }
-
             if ram_bank != ram_bank_new {
                 ram_bank = ram_bank_new;
 
@@ -187,6 +203,7 @@ pub struct Mbc5<'a, 'd, PIO: Instance, const SM: usize> {
     current_rom_bank_pointer: NonNull<u32>,
     current_ram_bank_pointer: NonNull<*mut u8>,
     gb_ram_memory: &'a mut [u8],
+    ram_control: &'a mut dyn MbcRamControl,
 }
 
 impl<'a, 'd, PIO: Instance, const SM: usize> Mbc5<'a, 'd, PIO, SM> {
@@ -195,6 +212,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc5<'a, 'd, PIO, SM> {
         current_rom_bank: *mut u32,
         ram_bank_pointer: *mut *mut u8,
         gb_ram_memory: &'a mut [u8],
+        ram_control: &'a mut dyn MbcRamControl,
     ) -> Self {
         let current_rom_bank_pointer = NonNull::new(current_rom_bank).unwrap();
         let current_ram_bank_pointer = NonNull::new(ram_bank_pointer).unwrap();
@@ -203,6 +221,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc5<'a, 'd, PIO, SM> {
             current_rom_bank_pointer,
             current_ram_bank_pointer,
             gb_ram_memory,
+            ram_control,
         }
     }
 }
@@ -211,8 +230,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc5<'a, 'd, PIO, SM> {
     fn run(&mut self) {
         let mut rom_bank = 1u16;
         let mut rom_bank_new = 1u16;
-        let mut ram_enabled = false;
-        let mut ram_enabled_new = false;
         let mut ram_bank = 1u8;
         let mut ram_bank_new = 1u8;
 
@@ -227,7 +244,12 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc5<'a, 'd, PIO, SM> {
 
             match addr & 0xF000u32 {
                 0x0000u32 | 0x1000u32 => {
-                    ram_enabled_new = data & 0xF == 0xAA;
+                    let ram_enabled = (data & 0x0F) == 0x0A;
+                    if ram_enabled {
+                        self.ram_control.enable_ram_access();
+                    } else {
+                        self.ram_control.disable_ram_access();
+                    }
                 }
                 0x2000u32 => {
                     rom_bank_new = (rom_bank & 0x0100) | data as u16;
@@ -252,12 +274,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc5<'a, 'd, PIO, SM> {
                         rom_bank as u32 * 0x4000u32,
                     )
                 };
-            }
-
-            if ram_enabled != ram_enabled_new {
-                ram_enabled = ram_enabled_new;
-
-                // todo: enable/disable ram access
             }
 
             if ram_bank != ram_bank_new {

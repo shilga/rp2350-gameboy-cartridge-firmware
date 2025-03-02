@@ -71,7 +71,7 @@ mod gb_dma;
 use gb_dma::{GbDmaCommandMachine, GbReadDmaConfig, GbReadSniffDmaConfig};
 
 mod gb_mbc;
-use gb_mbc::{Mbc, Mbc1, Mbc3, Mbc5, NoMbc};
+use gb_mbc::{Mbc, Mbc1, Mbc3, Mbc5, MbcRamControl, NoMbc};
 
 mod hyperram;
 use hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
@@ -517,23 +517,28 @@ async fn main(spawner: Spawner) {
         dat, dat2, dat3, dat4, dat5
     );
 
+    dma_command_machine.disable_ram_access();
+
     let mbc: &mut dyn Mbc = match rom_info.mbc {
         MbcType::None => &mut NoMbc {},
         MbcType::Mbc1 => &mut Mbc1::new(
             gb_mbc_commands_pio.rx_fifo(),
             ptr::addr_of_mut!(current_higher_base_addr),
+            dma_command_machine,
         ),
         MbcType::Mbc3 => &mut Mbc3::new(
             gb_mbc_commands_pio.rx_fifo(),
             ptr::addr_of_mut!(current_higher_base_addr),
             ptr::addr_of_mut!(gb_ram_ptr),
             gb_save_ram,
+            dma_command_machine,
         ),
         MbcType::Mbc5 => &mut Mbc5::new(
             gb_mbc_commands_pio.rx_fifo(),
             ptr::addr_of_mut!(current_higher_base_addr),
             ptr::addr_of_mut!(gb_ram_ptr),
             gb_save_ram,
+            dma_command_machine,
         ),
         _ => {
             panic!("unimplemented MBC");
