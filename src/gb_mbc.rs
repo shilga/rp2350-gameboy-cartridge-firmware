@@ -5,6 +5,13 @@ use core::ptr::{self, NonNull};
 pub trait MbcRamControl {
     fn enable_ram_access(&mut self);
     fn disable_ram_access(&mut self);
+    fn enable_rtc_access(&mut self);
+}
+
+pub trait MbcRtcControl {
+    fn process(&mut self);
+    fn trigger_latch(&mut self);
+    fn set_register(&mut self, reg_num: u8);
 }
 
 pub trait Mbc {
@@ -110,6 +117,7 @@ pub struct Mbc3<'a, 'd, PIO: Instance, const SM: usize> {
     current_ram_bank_pointer: NonNull<*mut u8>,
     gb_ram_memory: &'a mut [u8],
     ram_control: &'a mut dyn MbcRamControl,
+    rtc_control: &'a mut dyn MbcRtcControl,
 }
 
 impl<'a, 'd, PIO: Instance, const SM: usize> Mbc3<'a, 'd, PIO, SM> {
@@ -119,6 +127,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc3<'a, 'd, PIO, SM> {
         ram_bank_pointer: *mut *mut u8,
         gb_ram_memory: &'a mut [u8],
         ram_control: &'a mut dyn MbcRamControl,
+        rtc_control: &'a mut dyn MbcRtcControl,
     ) -> Self {
         let current_rom_bank_pointer = NonNull::new(current_rom_bank).unwrap();
         let current_ram_bank_pointer = NonNull::new(ram_bank_pointer).unwrap();
@@ -128,6 +137,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc3<'a, 'd, PIO, SM> {
             current_ram_bank_pointer,
             gb_ram_memory,
             ram_control,
+            rtc_control,
         }
     }
 }
@@ -137,21 +147,28 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
         let mut rom_bank = 1u8;
         let mut rom_bank_new = 1u8;
         let mut ram_bank = 1u8;
-        let mut ram_bank_new = 1u8;
+        let mut ram_enabled = false;
+        let mut rtc_latch = false;
 
         let rom_bank_mask = 0x7Fu8;
 
         loop {
-            while self.rx_fifo.empty() {}
+            while self.rx_fifo.empty() {
+                self.rtc_control.process();
+            }
             let addr = self.rx_fifo.pull();
             while self.rx_fifo.empty() {}
             let data = (self.rx_fifo.pull() & 0xFFu32) as u8;
 
             match addr & 0xE000u32 {
                 0x0000u32 => {
-                    let ram_enabled = (data & 0x0F) == 0x0A;
+                    ram_enabled = (data & 0x0F) == 0x0A;
                     if ram_enabled {
-                        self.ram_control.enable_ram_access();
+                        if ram_bank & 0x08u8 == 0x08u8 {
+                            self.ram_control.enable_rtc_access();
+                        } else {
+                            self.ram_control.enable_ram_access();
+                        }
                     } else {
                         self.ram_control.disable_ram_access();
                     }
@@ -163,10 +180,35 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
                     }
                 }
                 0x4000u32 => {
-                    ram_bank_new = data;
+                    ram_bank = data;
+                    if ram_bank & 0x08u8 == 0x08u8 {
+                        self.rtc_control.set_register(ram_bank & 0x07u8);
+                        if ram_enabled {
+                            self.ram_control.enable_rtc_access();
+                        }
+                    } else {
+                        unsafe {
+                            ptr::write_volatile(
+                                self.current_ram_bank_pointer.as_ptr(),
+                                self.gb_ram_memory
+                                    .as_mut_ptr()
+                                    .add((ram_bank & 0x03) as usize * 0x2000usize),
+                            )
+                        }
+                        if ram_enabled {
+                            self.ram_control.enable_ram_access();
+                        }
+                    }
                 }
                 0x6000u32 => {
-                    // rtc latch
+                    if data != 0 {
+                        if !rtc_latch {
+                            rtc_latch = true;
+                            self.rtc_control.trigger_latch();
+                        }
+                    } else {
+                        rtc_latch = false;
+                    }
                 }
                 _ => {}
             }
@@ -180,19 +222,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
                         rom_bank as u32 * 0x4000u32,
                     )
                 };
-            }
-
-            if ram_bank != ram_bank_new {
-                ram_bank = ram_bank_new;
-
-                unsafe {
-                    ptr::write_volatile(
-                        self.current_ram_bank_pointer.as_ptr(),
-                        self.gb_ram_memory
-                            .as_mut_ptr()
-                            .add((ram_bank & 0x03) as usize * 0x2000usize),
-                    )
-                }
             }
         }
     }

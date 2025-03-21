@@ -73,6 +73,9 @@ use gb_dma::{GbDmaCommandMachine, GbReadDmaConfig, GbReadSniffDmaConfig};
 mod gb_mbc;
 use gb_mbc::{Mbc, Mbc1, Mbc3, Mbc5, MbcRamControl, NoMbc};
 
+mod gb_rtc;
+use gb_rtc::GbRtc;
+
 mod hyperram;
 use hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
 
@@ -168,6 +171,7 @@ static SPI_BUS: StaticCell<CriticalSectionMutex<RefCell<spi::Spi<SPI0, Blocking>
 static WS2812: StaticCell<Ws2812Spi<SPI1>> = StaticCell::new();
 
 static GB_DMA_COMMAND_ENGINE: StaticCell<GbDmaCommandMachine> = StaticCell::new();
+static GB_RTC: StaticCell<GbRtc> = StaticCell::new();
 
 extern "C" {
     static mut _s_gb_rom_memory: u8;
@@ -362,6 +366,8 @@ async fn main(spawner: Spawner) {
         &gb_data_out_pio,
     );
 
+    let gb_rtc = GB_RTC.init(GbRtc::new());
+
     // DMA_COMMAND_ENGINE must be allocated statically as all the command blocks need to be located at a fixed position
     let dma_command_machine = GB_DMA_COMMAND_ENGINE.init(GbDmaCommandMachine::new(
         p.DMA_CH3, p.DMA_CH4, p.DMA_CH5, p.DMA_CH6, p.DMA_CH7,
@@ -371,6 +377,8 @@ async fn main(spawner: Spawner) {
         &gb_ram_write_pio,
         &gb_data_out_pio,
         ptr::addr_of_mut!(gb_ram_ptr),
+        gb_rtc.get_latch_ptr(),
+        gb_rtc.get_real_ptr(),
     );
 
     gb_rom_lower_pio.start();
@@ -532,6 +540,7 @@ async fn main(spawner: Spawner) {
             ptr::addr_of_mut!(gb_ram_ptr),
             gb_save_ram,
             dma_command_machine,
+            gb_rtc,
         ),
         MbcType::Mbc5 => &mut Mbc5::new(
             gb_mbc_commands_pio.rx_fifo(),
