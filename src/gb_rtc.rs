@@ -24,8 +24,8 @@ impl RtcRegs {
         self.status & 0x01u8 == 0x01u8
     }
 
-    fn set_days_high(&mut self) {
-        self.status |= 0x01u8;
+    fn toggle_days_high(&mut self) {
+        self.status ^= 0x01u8;
     }
 
     fn set_days_carry(&mut self) {
@@ -43,6 +43,7 @@ pub struct GbRtc {
     latch: GbRtcRegisters,
     last_milli: Instant,
     millies: u32,
+    old_halt: bool,
     latch_ptr: *mut u8,
     real_ptr: *mut u8,
 }
@@ -54,6 +55,7 @@ impl GbRtc {
             latch: GbRtcRegisters { as_array: [0u8; 5] },
             last_milli: Instant::from_micros(0),
             millies: 0,
+            old_halt: false,
             latch_ptr: core::ptr::null::<u8>() as *mut u8,
             real_ptr: core::ptr::null::<u8>() as *mut u8,
         }
@@ -81,7 +83,7 @@ impl GbRtc {
                             if regs.is_days_high() {
                                 regs.set_days_carry();
                             }
-                            regs.set_days_high();
+                            regs.toggle_days_high();
                         }
                     }
                 }
@@ -107,6 +109,11 @@ impl GbRtc {
 impl MbcRtcControl for GbRtc {
     fn process(&mut self) {
         let now = Instant::now();
+
+        if self.old_halt && !unsafe { self.real.regs }.is_halt() {
+            self.last_milli = now;
+        }
+        self.old_halt = unsafe { self.real.regs }.is_halt();
 
         if !unsafe { self.real.regs }.is_halt() {
             if now.duration_since(self.last_milli).as_micros() > 1000u64 {
@@ -139,8 +146,16 @@ impl MbcRtcControl for GbRtc {
     fn set_register(&mut self, reg_num: u8) {
         let reg_num: usize = reg_num as usize;
         if reg_num < REGISTER_MASKS.len() {
-            self.latch_ptr = unsafe { self.latch.as_array.as_mut_ptr().add(reg_num) };
-            self.real_ptr = unsafe { self.real.as_array.as_mut_ptr().add(reg_num) };
+            unsafe {
+                ptr::write_volatile(
+                    ptr::addr_of_mut!(self.latch_ptr),
+                    self.latch.as_array.as_mut_ptr().add(reg_num),
+                );
+                ptr::write_volatile(
+                    ptr::addr_of_mut!(self.real_ptr),
+                    self.real.as_array.as_mut_ptr().add(reg_num),
+                );
+            }
         }
     }
 }
