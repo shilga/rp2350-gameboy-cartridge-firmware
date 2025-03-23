@@ -48,7 +48,7 @@ use core::{ptr, str};
 
 use arrayvec::ArrayString;
 
-use defmt::{info, unwrap, warn};
+use defmt::{error, info, unwrap, warn};
 use {defmt_serial as _, panic_probe as _};
 
 use static_cell::StaticCell;
@@ -74,7 +74,10 @@ mod gb_mbc;
 use gb_mbc::{Mbc, Mbc1, Mbc3, Mbc5, MbcRamControl, NoMbc};
 
 mod gb_rtc;
-use gb_rtc::GbRtc;
+use gb_rtc::{GbRtc, GbRtcStateProvider, GbcRtcRegisters};
+
+mod gb_savefile;
+use gb_savefile::{GbRtcSaveStateProvider, GbSavefile};
 
 mod hyperram;
 use hyperram::{HyperRam, HyperRamPins, HyperRamReadOnly};
@@ -169,9 +172,17 @@ static SPI_BUS: StaticCell<CriticalSectionMutex<RefCell<spi::Spi<SPI0, Blocking>
     StaticCell::new();
 
 static WS2812: StaticCell<Ws2812Spi<SPI1>> = StaticCell::new();
+static MCP795XX: StaticCell<
+    Mcp795xx<
+        SpiDeviceWithConfig<'_, CriticalSectionRawMutex, spi::Spi<'_, SPI0, Blocking>, Output<'_>>,
+    >,
+> = StaticCell::new();
 
 static GB_DMA_COMMAND_ENGINE: StaticCell<GbDmaCommandMachine> = StaticCell::new();
+
+static GB_RTC_REGISTERS: StaticCell<CriticalSectionMutex<RefCell<GbcRtcRegisters>>> = StaticCell::new();
 static GB_RTC: StaticCell<GbRtc> = StaticCell::new();
+static GB_RTC_STATEPROVIDER: StaticCell<GbRtcStateProvider> = StaticCell::new();
 
 extern "C" {
     static mut _s_gb_rom_memory: u8;
@@ -366,7 +377,10 @@ async fn main(spawner: Spawner) {
         &gb_data_out_pio,
     );
 
-    let gb_rtc = GB_RTC.init(GbRtc::new());
+    let gb_rtc_registers = GB_RTC_REGISTERS.init(CriticalSectionMutex::new(RefCell::new(GbcRtcRegisters::new())));
+    let gb_rtc = GB_RTC.init(GbRtc::new(gb_rtc_registers));
+    let gb_rtc_stateprovider =
+        GB_RTC_STATEPROVIDER.init(GbRtcStateProvider::new(gb_rtc_registers));
 
     // DMA_COMMAND_ENGINE must be allocated statically as all the command blocks need to be located at a fixed position
     let dma_command_machine = GB_DMA_COMMAND_ENGINE.init(GbDmaCommandMachine::new(
@@ -437,7 +451,7 @@ async fn main(spawner: Spawner) {
         ))
     };
 
-    let mut rtc = Mcp795xx::new(spi_dev_rtc);
+    let rtc = MCP795XX.init(Mcp795xx::new(spi_dev_rtc));
 
     let control = rtc.read_register(8).unwrap();
     info!("control {:#x}", control);
@@ -502,7 +516,7 @@ async fn main(spawner: Spawner) {
             &mut reset_pin,
             &mut hyperram,
             ws2812,
-            &mut rtc,
+            rtc,
         );
 
         gb_bootloader.run().await
@@ -554,7 +568,7 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    if rom_info.ram_bank_count > 0 {
+    if rom_info.ram_bank_count > 0 || rom_info.has_rtc {
         spawn_core1(
             p.CORE1,
             unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
@@ -572,7 +586,9 @@ async fn main(spawner: Spawner) {
                         ws2812,
                         volume_mgr,
                         rom_info,
-                        gb_save_ram
+                        gb_save_ram,
+                        rtc,
+                        gb_rtc_stateprovider,
                     )))
                 });
             },
@@ -622,6 +638,12 @@ async fn core1_task(
     volume_mgr: &'static mut VolumeManagerType<'_>,
     rom_info: &'static RomInfo,
     saveram_memory: &'static [u8],
+    timesource: &'static mut dyn DateTimeAccess<
+        Error = mcp795xx::Mcp795xxError<
+            embassy_embedded_hal::shared_bus::SpiDeviceError<spi::Error, core::convert::Infallible>,
+        >,
+    >,
+    rtc_state_provider: &'static dyn GbRtcSaveStateProvider,
 ) {
     let mut async_input = Input::new(button_pin, Pull::Up);
     let saveram_filename = rom_info.savefile.as_str();
@@ -633,6 +655,14 @@ async fn core1_task(
         .unwrap();
     let mut root_dir = volume0.open_root_dir().unwrap();
 
+    let mut gb_savefile = GbSavefile::new(
+        &mut root_dir,
+        rom_info,
+        saveram_memory,
+        timesource,
+        rtc_state_provider,
+    );
+
     loop {
         info!("Hello from core 1");
         async_input.wait_for_high().await;
@@ -640,35 +670,17 @@ async fn core1_task(
 
         led.write(&RGB8::new(16, 0, 0));
 
-        match root_dir.open_file_in_dir(
-            saveram_filename,
-            embedded_sdmmc::Mode::ReadWriteCreateOrTruncate,
-        ) {
-            Ok(mut savefile) => {
-                info!("Found and opened savefile");
-
-                match savefile.write(saveram_memory) {
-                    Ok(_) => {
-                        info!("Saved saveram to {}", saveram_filename);
-                    }
-                    Err(error) => {
-                        warn!(
-                            "Unable to write to {}: {}",
-                            saveram_filename,
-                            defmt::Debug2Format(&error)
-                        );
-                    }
-                };
-
-                savefile.close().unwrap();
+        match gb_savefile.store() {
+            Ok(_) => {
+                info!("Savegame storage succesful");
             }
             Err(error) => {
-                warn!(
-                    "Unable to open savefile for saving {}",
+                error!(
+                    "Error during savegame storage {}",
                     defmt::Debug2Format(&error)
                 );
             }
-        };
+        }
 
         led.write(&RGB8::default());
     }
