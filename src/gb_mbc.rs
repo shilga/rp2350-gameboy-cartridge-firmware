@@ -11,7 +11,7 @@ pub trait MbcRamControl {
 pub trait MbcRtcControl {
     fn process(&mut self);
     fn trigger_latch(&mut self);
-    fn set_register(&mut self, reg_num: u8);
+    fn activate_register(&mut self, reg_num: u8);
 }
 
 pub trait Mbc {
@@ -182,7 +182,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
                 0x4000u32 => {
                     ram_bank = data;
                     if ram_bank & 0x08u8 == 0x08u8 {
-                        self.rtc_control.set_register(ram_bank & 0x07u8);
+                        self.rtc_control.activate_register(ram_bank & 0x07u8);
                         if ram_enabled {
                             self.ram_control.enable_rtc_access();
                         }

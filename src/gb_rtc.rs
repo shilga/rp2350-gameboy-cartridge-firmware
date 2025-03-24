@@ -173,7 +173,7 @@ impl<'a> MbcRtcControl for GbRtc<'a> {
         });
     }
 
-    fn set_register(&mut self, reg_num: u8) {
+    fn activate_register(&mut self, reg_num: u8) {
         let reg_num: usize = reg_num as usize;
         if reg_num < REGISTER_MASKS.len() {
             self.registers.lock(|registers| {
