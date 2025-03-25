@@ -129,6 +129,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc3<'a, 'd, PIO, SM> {
         ram_control: &'a mut dyn MbcRamControl,
         rtc_control: &'a mut dyn MbcRtcControl,
     ) -> Self {
+        rtc_control.process(); /* pre process RTC here */
         let current_rom_bank_pointer = NonNull::new(current_rom_bank).unwrap();
         let current_ram_bank_pointer = NonNull::new(ram_bank_pointer).unwrap();
         Self {

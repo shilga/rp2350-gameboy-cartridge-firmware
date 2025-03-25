@@ -1,10 +1,5 @@
-use core::ptr;
-
-use crate::built_info;
-use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
-use crate::rom_info::RomInfo;
-use crate::ws2812_spi::Ws2812Led;
 use arrayvec::ArrayString;
+use core::ptr;
 use cstr_core::{c_char, CStr};
 use defmt::{info, warn};
 use embassy_futures::select::{select, Either};
@@ -14,6 +9,12 @@ use embedded_hal_1::digital::{Error as HalDigitalError, OutputPin};
 use embedded_sdmmc::{BlockDevice, TimeSource, VolumeManager};
 use rtcc::{DateTimeAccess, Datelike, NaiveDate, Timelike};
 use smart_leds::RGB8;
+
+use crate::built_info;
+use crate::gb_savefile::{GbRtcSaveStateProvider, GbSavefile};
+use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
+use crate::rom_info::RomInfo;
+use crate::ws2812_spi::Ws2812Led;
 
 #[repr(C, packed(1))]
 struct SharedGameboyData {
@@ -63,6 +64,7 @@ pub struct GbBootloader<
     rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
     gb_rom_memory: &'a mut [u8],
     gb_ram_memory: &'a mut [u8],
+    gb_rtc_state_provider: &'a mut dyn GbRtcSaveStateProvider,
     bank0_base_addr_ptr: *mut *mut u8,
     reset_pin: &'a mut dyn OutputPin<Error = PinError>,
     hyperram: &'a mut dyn HyperRamWriteBlocking,
@@ -95,6 +97,7 @@ where
         rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
         gb_rom_memory: &'a mut [u8],
         gb_ram_memory: &'a mut [u8],
+        gb_rtc_state_provider: &'a mut dyn GbRtcSaveStateProvider,
         bank0_base_addr_ptr: *mut *mut u8,
         reset_pin: &'a mut dyn OutputPin<Error = PinError>,
         hyperram: &'a mut dyn HyperRamWriteBlocking,
@@ -107,6 +110,7 @@ where
             rx_fifo,
             gb_rom_memory,
             gb_ram_memory,
+            gb_rtc_state_provider,
             bank0_base_addr_ptr,
             reset_pin,
             hyperram,
@@ -342,26 +346,27 @@ where
         // set the bank0 pointer to the area we have loaded bank0 to
         unsafe { ptr::write_volatile(self.bank0_base_addr_ptr, bank0.as_mut_ptr()) };
 
-        match root_dir.open_file_in_dir(save_filename.as_str(), embedded_sdmmc::Mode::ReadOnly) {
-            Ok(mut savefile) => {
-                info!("Found and opened savefile");
+        {
+            let saveram_memory =
+                &mut self.gb_ram_memory[0..(rom_info.ram_bank_count as usize * 0x2000usize)];
 
-                match savefile.read(self.gb_ram_memory) {
-                    Ok(num_read) => {
-                        info!("Read {} bytes from savefile", num_read);
-                    }
-                    Err(error) => {
-                        warn!(
-                            "Unable to read from savefile {}",
-                            defmt::Debug2Format(&error)
-                        );
-                    }
-                };
+            let mut savefile = GbSavefile::new(
+                &mut root_dir,
+                &rom_info,
+                self.rtc,
+                self.gb_rtc_state_provider,
+            );
 
-                savefile.close().unwrap();
-            }
-            Err(error) => {
-                warn!("Unable to open savefile {}", defmt::Debug2Format(&error));
+            match savefile.load(saveram_memory) {
+                Ok(_) => {
+                    info!("saveram restored from savefile");
+                }
+                Err(error) => {
+                    warn!(
+                        "Unable to read from savefile {}",
+                        defmt::Debug2Format(&error)
+                    );
+                }
             }
         }
 

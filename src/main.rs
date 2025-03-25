@@ -180,7 +180,8 @@ static MCP795XX: StaticCell<
 
 static GB_DMA_COMMAND_ENGINE: StaticCell<GbDmaCommandMachine> = StaticCell::new();
 
-static GB_RTC_REGISTERS: StaticCell<CriticalSectionMutex<RefCell<GbcRtcRegisters>>> = StaticCell::new();
+static GB_RTC_REGISTERS: StaticCell<CriticalSectionMutex<RefCell<GbcRtcRegisters>>> =
+    StaticCell::new();
 static GB_RTC: StaticCell<GbRtc> = StaticCell::new();
 static GB_RTC_STATEPROVIDER: StaticCell<GbRtcStateProvider> = StaticCell::new();
 
@@ -377,10 +378,11 @@ async fn main(spawner: Spawner) {
         &gb_data_out_pio,
     );
 
-    let gb_rtc_registers = GB_RTC_REGISTERS.init(CriticalSectionMutex::new(RefCell::new(GbcRtcRegisters::new())));
+    let gb_rtc_registers = GB_RTC_REGISTERS.init(CriticalSectionMutex::new(RefCell::new(
+        GbcRtcRegisters::new(),
+    )));
     let gb_rtc = GB_RTC.init(GbRtc::new(gb_rtc_registers));
-    let gb_rtc_stateprovider =
-        GB_RTC_STATEPROVIDER.init(GbRtcStateProvider::new(gb_rtc_registers));
+    let gb_rtc_stateprovider = GB_RTC_STATEPROVIDER.init(GbRtcStateProvider::new(gb_rtc_registers));
 
     // DMA_COMMAND_ENGINE must be allocated statically as all the command blocks need to be located at a fixed position
     let dma_command_machine = GB_DMA_COMMAND_ENGINE.init(GbDmaCommandMachine::new(
@@ -512,6 +514,7 @@ async fn main(spawner: Spawner) {
             gb_mbc_commands_pio.rx_fifo(),
             gb_rom,
             gb_save_ram,
+            gb_rtc_stateprovider,
             ptr::addr_of_mut!(gb_rom_ptr),
             &mut reset_pin,
             &mut hyperram,
@@ -643,7 +646,7 @@ async fn core1_task(
             embassy_embedded_hal::shared_bus::SpiDeviceError<spi::Error, core::convert::Infallible>,
         >,
     >,
-    rtc_state_provider: &'static dyn GbRtcSaveStateProvider,
+    rtc_state_provider: &'static mut dyn GbRtcSaveStateProvider,
 ) {
     let mut async_input = Input::new(button_pin, Pull::Up);
     let saveram_filename = rom_info.savefile.as_str();
@@ -655,13 +658,7 @@ async fn core1_task(
         .unwrap();
     let mut root_dir = volume0.open_root_dir().unwrap();
 
-    let mut gb_savefile = GbSavefile::new(
-        &mut root_dir,
-        rom_info,
-        saveram_memory,
-        timesource,
-        rtc_state_provider,
-    );
+    let mut gb_savefile = GbSavefile::new(&mut root_dir, rom_info, timesource, rtc_state_provider);
 
     loop {
         info!("Hello from core 1");
@@ -670,7 +667,7 @@ async fn core1_task(
 
         led.write(&RGB8::new(16, 0, 0));
 
-        match gb_savefile.store() {
+        match gb_savefile.store(saveram_memory) {
             Ok(_) => {
                 info!("Savegame storage succesful");
             }

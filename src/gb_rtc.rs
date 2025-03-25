@@ -217,4 +217,26 @@ impl<'a> GbRtcSaveStateProvider for GbRtcStateProvider<'a> {
 
         (real, latch)
     }
+
+    fn restore_register_state(&mut self, regs: ([u8; 5], [u8; 5])) {
+        self.registers.lock(|registers| {
+            let mut registers = registers.borrow_mut();
+            unsafe { &mut registers.real.as_array }.copy_from_slice(&regs.0);
+            unsafe { &mut registers.latch.as_array }.copy_from_slice(&regs.1);
+        });
+    }
+
+    fn advance_by_seconds(&mut self, seconds: u64) {
+        let mut seconds = seconds;
+        self.registers.lock(|registers| {
+            let mut registers = registers.borrow_mut();
+            let regs = unsafe { &mut registers.real.regs };
+            if !regs.is_halt() {
+                while seconds > 0 {
+                    GbRtc::process_tick(regs);
+                    seconds -= 1;
+                }
+            }
+        });
+    }
 }
