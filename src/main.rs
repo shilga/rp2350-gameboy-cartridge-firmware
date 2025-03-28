@@ -16,14 +16,13 @@ use embassy_rp::peripherals::{PIN_46, SPI1, USB};
 use embassy_rp::peripherals::{PIO0, PIO1, PIO2, SPI0, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::spi::Blocking;
+use embassy_rp::spinlock_mutex::blocking_mutex::SpinlockMutex;
+use embassy_rp::spinlock_mutex::SpinlockRawMutex;
 use embassy_rp::uart::UartTx;
 use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_rp::{bind_interrupts, spi};
 use embassy_rp::{clocks, config as rpconfig, pac};
-
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 
@@ -156,7 +155,7 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
 
 type VolumeManagerType<'d> = VolumeManager<
     SdCard<
-        SpiDeviceWithConfig<'d, CriticalSectionRawMutex, spi::Spi<'d, SPI0, Blocking>, Output<'d>>,
+        SpiDeviceWithConfig<'d, SpinlockRawMutex<0>, spi::Spi<'d, SPI0, Blocking>, Output<'d>>,
         embassy_time::Delay,
     >,
     DummyTimesource,
@@ -168,22 +167,21 @@ static LOADED_ROM_INFO: StaticCell<RomInfo> = StaticCell::new();
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
-static SPI_BUS: StaticCell<CriticalSectionMutex<RefCell<spi::Spi<SPI0, Blocking>>>> =
-    StaticCell::new();
+static SPI_BUS: StaticCell<SpinlockMutex<0, RefCell<spi::Spi<SPI0, Blocking>>>> = StaticCell::new();
 
 static WS2812: StaticCell<Ws2812Spi<SPI1>> = StaticCell::new();
 static MCP795XX: StaticCell<
     Mcp795xx<
-        SpiDeviceWithConfig<'_, CriticalSectionRawMutex, spi::Spi<'_, SPI0, Blocking>, Output<'_>>,
+        SpiDeviceWithConfig<'_, SpinlockRawMutex<0>, spi::Spi<'_, SPI0, Blocking>, Output<'_>>,
     >,
 > = StaticCell::new();
 
 static GB_DMA_COMMAND_ENGINE: StaticCell<GbDmaCommandMachine> = StaticCell::new();
 
-static GB_RTC_REGISTERS: StaticCell<CriticalSectionMutex<RefCell<GbcRtcRegisters>>> =
+static GB_RTC_REGISTERS: StaticCell<SpinlockMutex<1, RefCell<GbcRtcRegisters>>> = StaticCell::new();
+static GB_RTC: StaticCell<GbRtc<SpinlockRawMutex<1>>> = StaticCell::new();
+static GB_RTC_STATEPROVIDER: StaticCell<GbRtcStateProvider<SpinlockRawMutex<1>>> =
     StaticCell::new();
-static GB_RTC: StaticCell<GbRtc> = StaticCell::new();
-static GB_RTC_STATEPROVIDER: StaticCell<GbRtcStateProvider> = StaticCell::new();
 
 extern "C" {
     static mut _s_gb_rom_memory: u8;
@@ -378,9 +376,8 @@ async fn main(spawner: Spawner) {
         &gb_data_out_pio,
     );
 
-    let gb_rtc_registers = GB_RTC_REGISTERS.init(CriticalSectionMutex::new(RefCell::new(
-        GbcRtcRegisters::new(),
-    )));
+    let gb_rtc_registers =
+        GB_RTC_REGISTERS.init(SpinlockMutex::new(RefCell::new(GbcRtcRegisters::new())));
     let gb_rtc = GB_RTC.init(GbRtc::new(gb_rtc_registers));
     let gb_rtc_stateprovider = GB_RTC_STATEPROVIDER.init(GbRtcStateProvider::new(gb_rtc_registers));
 
@@ -409,7 +406,7 @@ async fn main(spawner: Spawner) {
     config.frequency = 400_000;
     let spi = spi::Spi::new_blocking(p.SPI0, p.PIN_2, p.PIN_3, p.PIN_0, config);
 
-    let spi_bus = CriticalSectionMutex::new(RefCell::new(spi));
+    let spi_bus = SpinlockMutex::new(RefCell::new(spi));
     let spi_bus = SPI_BUS.init(spi_bus);
 
     let cs_sd_pin = Output::new(p.PIN_1, Level::High);

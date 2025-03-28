@@ -1,6 +1,6 @@
 use core::cell::RefCell;
 use core::ptr;
-use embassy_sync::blocking_mutex::CriticalSectionMutex;
+use embassy_sync::blocking_mutex::{raw::RawMutex, Mutex};
 use embassy_time::{Duration, Instant};
 
 use crate::gb_mbc::MbcRtcControl;
@@ -55,8 +55,11 @@ impl GbcRtcRegisters {
     }
 }
 
-pub struct GbRtc<'a> {
-    registers: &'a CriticalSectionMutex<RefCell<GbcRtcRegisters>>,
+pub struct GbRtc<'a, M>
+where
+    M: RawMutex,
+{
+    registers: &'a Mutex<M, RefCell<GbcRtcRegisters>>,
     last_milli: Instant,
     millies: u32,
     old_halt: bool,
@@ -64,8 +67,11 @@ pub struct GbRtc<'a> {
     real_ptr: *mut u8,
 }
 
-impl<'a> GbRtc<'a> {
-    pub fn new(registers: &'a CriticalSectionMutex<RefCell<GbcRtcRegisters>>) -> Self {
+impl<'a, M> GbRtc<'a, M>
+where
+    M: RawMutex,
+{
+    pub fn new(registers: &'a Mutex<M, RefCell<GbcRtcRegisters>>) -> Self {
         GbRtc {
             registers,
             last_milli: Instant::from_micros(0),
@@ -125,7 +131,10 @@ impl<'a> GbRtc<'a> {
     }
 }
 
-impl<'a> MbcRtcControl for GbRtc<'a> {
+impl<'a, M> MbcRtcControl for GbRtc<'a, M>
+where
+    M: RawMutex,
+{
     fn process(&mut self) {
         // lock for the full processing time. It's important this is done without interruption.
         // The only other consumer is the savegame storing process. That can wait until this is done.
@@ -151,7 +160,7 @@ impl<'a> MbcRtcControl for GbRtc<'a> {
 
                 if self.millies >= 1000u32 {
                     self.millies = 0;
-                    GbRtc::process_tick(regs);
+                    GbRtc::<M>::process_tick(regs);
                 }
             }
 
@@ -194,17 +203,26 @@ impl<'a> MbcRtcControl for GbRtc<'a> {
     }
 }
 
-pub struct GbRtcStateProvider<'a> {
-    registers: &'a CriticalSectionMutex<RefCell<GbcRtcRegisters>>,
+pub struct GbRtcStateProvider<'a, M>
+where
+    M: RawMutex,
+{
+    registers: &'a Mutex<M, RefCell<GbcRtcRegisters>>,
 }
 
-impl<'a> GbRtcStateProvider<'a> {
-    pub fn new(registers: &'a CriticalSectionMutex<RefCell<GbcRtcRegisters>>) -> Self {
+impl<'a, M> GbRtcStateProvider<'a, M>
+where
+    M: RawMutex,
+{
+    pub fn new(registers: &'a Mutex<M, RefCell<GbcRtcRegisters>>) -> Self {
         Self { registers }
     }
 }
 
-impl<'a> GbRtcSaveStateProvider for GbRtcStateProvider<'a> {
+impl<'a, M> GbRtcSaveStateProvider for GbRtcStateProvider<'a, M>
+where
+    M: RawMutex,
+{
     fn retrieve_register_state(&self) -> ([u8; 5], [u8; 5]) {
         let mut real = [0u8; 5];
         let mut latch = [0u8; 5];
@@ -233,7 +251,7 @@ impl<'a> GbRtcSaveStateProvider for GbRtcStateProvider<'a> {
             let regs = unsafe { &mut registers.real.regs };
             if !regs.is_halt() {
                 while seconds > 0 {
-                    GbRtc::process_tick(regs);
+                    GbRtc::<M>::process_tick(regs);
                     seconds -= 1;
                 }
             }

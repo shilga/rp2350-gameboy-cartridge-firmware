@@ -404,7 +404,7 @@ checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
 [[package]]
 name = "embassy-embedded-hal"
 version = "0.2.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "defmt",
  "embassy-futures",
@@ -421,7 +421,7 @@ dependencies = [
 [[package]]
 name = "embassy-executor"
 version = "0.6.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "cortex-m",
  "critical-section",
@@ -435,7 +435,7 @@ dependencies = [
 [[package]]
 name = "embassy-executor-macros"
 version = "0.5.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -446,12 +446,12 @@ dependencies = [
 [[package]]
 name = "embassy-futures"
 version = "0.1.1"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 
 [[package]]
 name = "embassy-hal-internal"
 version = "0.2.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "cortex-m",
  "critical-section",
@@ -462,12 +462,12 @@ dependencies = [
 [[package]]
 name = "embassy-net-driver"
 version = "0.2.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 
 [[package]]
 name = "embassy-net-driver-channel"
 version = "0.3.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "embassy-futures",
  "embassy-net-driver",
@@ -477,7 +477,7 @@ dependencies = [
 [[package]]
 name = "embassy-rp"
 version = "0.2.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "atomic-polyfill",
  "cfg-if",
@@ -515,7 +515,7 @@ dependencies = [
 [[package]]
 name = "embassy-sync"
 version = "0.6.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "cfg-if",
  "critical-section",
@@ -528,7 +528,7 @@ dependencies = [
 [[package]]
 name = "embassy-time"
 version = "0.3.2"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "cfg-if",
  "critical-section",
@@ -546,7 +546,7 @@ dependencies = [
 [[package]]
 name = "embassy-time-driver"
 version = "0.1.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "document-features",
 ]
@@ -554,12 +554,12 @@ dependencies = [
 [[package]]
 name = "embassy-time-queue-driver"
 version = "0.1.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 
 [[package]]
 name = "embassy-usb"
 version = "0.3.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "defmt",
  "embassy-futures",
@@ -574,7 +574,7 @@ dependencies = [
 [[package]]
 name = "embassy-usb-driver"
 version = "0.1.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "defmt",
 ]
@@ -582,7 +582,7 @@ dependencies = [
 [[package]]
 name = "embassy-usb-logger"
 version = "0.2.0"
-source = "git+https://github.com/embassy-rs/embassy#0ede8479dc4c6a58cfab0a5d4df41c0592405971"
+source = "git+https://github.com/shilga/embassy#b14bdceb3b2382dac7372104fee191d690da0905"
 dependencies = [
  "embassy-futures",
  "embassy-sync",
