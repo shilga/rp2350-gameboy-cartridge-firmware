@@ -1,4 +1,5 @@
-use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
+#![allow(unused)]
+
 use embassy_futures::block_on;
 use embassy_rp::{
     gpio::{Drive, SlewRate},
@@ -8,6 +9,8 @@ use embassy_rp::{
         ShiftDirection, StateMachine,
     },
 };
+
+use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
 
 pub const ID0: u32 = 0u32 << 12 | 0u32 << 1;
 pub const ID1: u32 = 0u32 << 12 | 1u32 << 1;
