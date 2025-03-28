@@ -175,7 +175,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
                     }
                 }
                 0x2000u32 => {
-                    rom_bank_new = (data & 0x7F);
+                    rom_bank_new = data & 0x7F;
                     if rom_bank_new == 0x00 {
                         rom_bank_new = 0x01;
                     }
