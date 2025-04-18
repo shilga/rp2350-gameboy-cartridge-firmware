@@ -55,6 +55,18 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
 
+    // check if env vars for version are correct
+    u8::from_str_radix(std::env::var("VERSION_MAJOR").unwrap().as_str(), 10).expect("VERSION_MAJOR is not an u8");
+    u8::from_str_radix(std::env::var("VERSION_MINOR").unwrap().as_str(), 10).expect("VERSION_MAJOR is not an u8");
+    u8::from_str_radix(std::env::var("VERSION_PATCH").unwrap().as_str(), 10).expect("VERSION_MAJOR is not an u8");
+    assert!(std::env::var("RELEASE_TYPE").unwrap().len() == 1);
+
+    println!("cargo::rerun-if-env-changed=VERSION_MAJOR");
+    println!("cargo::rerun-if-env-changed=VERSION_MINOR");
+    println!("cargo::rerun-if-env-changed=VERSION_PATCH");
+    println!("cargo::rerun-if-env-changed=RELEASE_TYPE");
+
+
     built::write_built_file().expect("Failed to acquire build-time information");
 
     // Make sure we get rerun when the git commit changes.

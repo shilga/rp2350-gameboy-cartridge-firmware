@@ -228,8 +228,12 @@ async fn main(spawner: Spawner) {
 
     let sys_freq = clocks::clk_sys_freq();
     info!(
-        "Hello defmt-world!, croco-cartridge v2 revision {}",
-        built_info::GIT_COMMIT_HASH_SHORT
+        "Hello defmt-world!, croco-cartridge v2 revision {} {}{}.{}.{}",
+        built_info::GIT_COMMIT_HASH_SHORT,
+        env!("RELEASE_TYPE"),
+        env!("VERSION_MAJOR"),
+        env!("VERSION_MINOR"),
+        env!("VERSION_PATCH")
     );
     info!("running at {} hz", sys_freq);
 

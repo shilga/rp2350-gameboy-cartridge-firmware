@@ -148,8 +148,10 @@ where
         } else {
             0x0u8
         };
-        shared_data.build_type = 'U' as u8;
-        bootloader_data[6..9].fill(255);
+        shared_data.version_major = u8::from_str_radix(env!("VERSION_MAJOR"), 10).unwrap();
+        shared_data.version_minor = u8::from_str_radix(env!("VERSION_MINOR"), 10).unwrap();
+        shared_data.version_patch = u8::from_str_radix(env!("VERSION_PATCH"), 10).unwrap();
+        shared_data.build_type = env!("RELEASE_TYPE").chars().nth(0).unwrap() as c_char;
 
         let mut used_data = 16usize; // offset that makes it compatible to the v1 cartridge bootloader
         let mut num_roms = 0u8;

@@ -33,6 +33,10 @@ runner = "picotool load -u -v -x -t elf"
 
 [env]
 DEFMT_LOG = "debug"
+VERSION_MAJOR = "255"
+VERSION_MINOR = "255"
+VERSION_PATCH = "255"
+RELEASE_TYPE = "U"
 
 [profile.release]
 debug = 2
