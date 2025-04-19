@@ -31,6 +31,8 @@ pub enum Mcp795xxError<E> {
     Spi(E),
     InvalidInputData,
     CalendarError,
+    AddrOutOfRange,
+    UnalignedAccess,
 }
 
 #[allow(unused)]
@@ -168,6 +170,100 @@ where
         let sec = self.read_register(RegisterAdresses::RTCSEC as u8)?;
         self.write_register(RegisterAdresses::RTCSEC as u8, sec & 0x80u8)?;
         Ok(())
+    }
+
+    pub fn read_protected_eeprom(
+        &mut self,
+        addr: u8,
+        data: &mut [u8],
+    ) -> Result<(), Mcp795xxError<E>> {
+        if addr as usize + data.len() > 0x10usize {
+            return Err(Mcp795xxError::AddrOutOfRange);
+        }
+
+        self.spi
+            .transaction(&mut [
+                Operation::Write(&[Instructions::IDREAD as u8, addr]),
+                Operation::Read(data),
+            ])
+            .map_err(Mcp795xxError::Spi)?;
+
+        Ok(())
+    }
+
+    pub fn write_protected_eeprom(
+        &mut self,
+        addr: u8,
+        data: &[u8],
+    ) -> Result<(), Mcp795xxError<E>> {
+        if addr as usize + data.len() > 0x10usize {
+            return Err(Mcp795xxError::AddrOutOfRange);
+        }
+
+        if addr % 0x08u8 != 0 {
+            return Err(Mcp795xxError::UnalignedAccess);
+        }
+
+        let mut len = data.len();
+        let mut addr = addr as usize;
+
+        while len > 0 {
+            let bytes_to_write = {
+                if len > 0x08usize {
+                    0x08usize
+                } else {
+                    len
+                }
+            };
+
+            self.eeprom_write_enable()?;
+
+            self.spi
+                .write(&[Instructions::UNLOCK as u8, 0x55u8])
+                .map_err(Mcp795xxError::Spi)?;
+
+            self.spi
+                .write(&[Instructions::UNLOCK as u8, 0xAAu8])
+                .map_err(Mcp795xxError::Spi)?;
+
+            self.spi
+                .transaction(&mut [
+                    Operation::Write(&[Instructions::IDWRITE as u8, addr as u8]),
+                    Operation::Write(&data[addr..addr + bytes_to_write]),
+                ])
+                .map_err(Mcp795xxError::Spi)?;
+
+            let mut status = 0x01u8;
+            while status & 0x01u8 == 0x01u8 {
+                status = self.eeprom_read_status()?;
+            }
+
+            addr += bytes_to_write;
+            len -= bytes_to_write;
+        }
+
+        Ok(())
+    }
+
+    fn eeprom_write_enable(&mut self) -> Result<(), Mcp795xxError<E>> {
+        self.spi
+            .write(&[Instructions::EEWREN as u8])
+            .map_err(Mcp795xxError::Spi)?;
+
+        Ok(())
+    }
+
+    fn eeprom_read_status(&mut self) -> Result<u8, Mcp795xxError<E>> {
+        let mut read_buf = [0u8; 1];
+
+        self.spi
+            .transaction(&mut [
+                Operation::Write(&[Instructions::SRREAD as u8]),
+                Operation::Read(&mut read_buf),
+            ])
+            .map_err(Mcp795xxError::Spi)?;
+
+        Ok(read_buf[0])
     }
 }
 

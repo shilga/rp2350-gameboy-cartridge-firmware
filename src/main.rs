@@ -502,6 +502,13 @@ async fn main(spawner: Spawner) {
         rtc.write_register(1, 0x80u8).unwrap();
     }
 
+    let mut prot_eeprom_data = [0u8; 0x10];
+    rtc.read_protected_eeprom(0, &mut prot_eeprom_data).unwrap();
+    info!("prot eeprom: {}", prot_eeprom_data);
+
+    // prot_eeprom_data[0xF] = 45;
+    // rtc.write_protected_eeprom(0, &prot_eeprom_data).unwrap();
+
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
         p.PIN_14, p.PIN_15, p.PIN_16,
