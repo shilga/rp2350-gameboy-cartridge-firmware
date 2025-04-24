@@ -1,5 +1,5 @@
 {
-    "image": "shilga/rp2350-croco-cartridge-devcontainer-rust:v0.1",
+    "image": "shilga/rp2350-croco-cartridge-devcontainer-rust:v0.2",
     "name": "CrocoCartridge2DevContainer",
     "mounts": [
         "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached",

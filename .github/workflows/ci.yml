@@ -1,0 +1,53 @@
+# This starter workflow is for a CMake project running on a single platform. There is a different starter workflow if you need cross-platform coverage.
+# See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-multi-platform.yml
+name: CI - Build on changes
+
+on:
+  push:
+    branches: [ "master", "dev"]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
+    # You can convert this to a matrix build if you need cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: ubuntu-latest
+    container: 
+      image: shilga/rp2350-croco-cartridge-devcontainer-rust:v0.2
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build
+      # Build your program with the given configuration
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+        echo "GITHUB_SHA=$GITHUB_SHA" >> $GITHUB_ENV
+        echo 'github.workspace = ${{ github.workspace }}'
+        echo "GITHUB_WORKSPACE = $GITHUB_WORKSPACE"
+        echo 'runner.workspace = ${{ runner.workspace }}'
+        echo "RUNNER_WORKSPACE = $RUNNER_WORKSPACE"
+        echo "user: $(id -u -n)"
+        echo "PATH: $PATH"
+        echo "RUSTUP_HOME: $RUSTUP_HOME"
+        cat /usr/local/rustup/settings.toml
+        cargo build --release
+
+    - name: rename elf file
+      # Build your program with the given configuration
+      run: |
+        mv ${{env.GITHUB_WORKSPACE}}/target/thumbv8m.main-none-eabihf/release/rp2350-gameboy-cartridge ${{env.GITHUB_WORKSPACE}}/target/thumbv8m.main-none-eabihf/release/rp2350-gameboy-cartridge.elf
+
+    - name: Archive artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: rp2350-gameboy-cartridge-binaries-${{env.GITHUB_SHA}}
+        path: |
+          ${{env.GITHUB_WORKSPACE}}/target/thumbv8m.main-none-eabihf/release/*.elf
