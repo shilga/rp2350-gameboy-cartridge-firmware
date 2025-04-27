@@ -101,6 +101,9 @@ mod rp2350_core_voltage;
 mod mcp795xx;
 use mcp795xx::{DateTimeAccess, Mcp795xx};
 
+mod production_data;
+use production_data::ProductionData;
+
 // Include the generated-file as a separate module
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -506,8 +509,8 @@ async fn main(spawner: Spawner) {
     rtc.read_protected_eeprom(0, &mut prot_eeprom_data).unwrap();
     info!("prot eeprom: {}", prot_eeprom_data);
 
-    // prot_eeprom_data[0xF] = 45;
-    // rtc.write_protected_eeprom(0, &prot_eeprom_data).unwrap();
+    let production_data = ProductionData::from_bytes(&prot_eeprom_data).unwrap_or_default();
+    info!("production_data: {}", defmt::Debug2Format(&production_data));
 
     let hyperrampins = HyperRamPins::new(
         &mut pio2, p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9, p.PIN_10, p.PIN_11, p.PIN_12, p.PIN_13,
@@ -539,6 +542,7 @@ async fn main(spawner: Spawner) {
             &mut hyperram,
             ws2812,
             rtc,
+            &production_data,
         );
 
         gb_bootloader.run().await

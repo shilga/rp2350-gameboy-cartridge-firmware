@@ -84,6 +84,7 @@ struct SharedGameboyData
     uint8_t versionMajor;
     uint8_t versionMinor;
     uint8_t versionPatch;
+    uint8_t harwareRevision;
     uint16_t loaded_banks;
     uint16_t num_banks;
     uint8_t msg_id_gb_2_rp;
@@ -394,15 +395,17 @@ uint8_t drawscreenSystemInfo(void)
         set_bkg_tiles(0, 0, 20, 18, giraffe_4color_map);
         gotoxy(0, 0);
         printf("***   Sysinfo    ***");
+        gotoxy(0, 14);
+        printf("Croco Cartridge V2");
         gotoxy(0, 15);
-        printf("Croco Cartridge");
+        printf("HW Rev %d", s_sharedData->harwareRevision);
         gotoxy(0, 16);
         printf("Ver %hu.", (uint8_t)s_sharedData->versionMajor);
         printf("%hu.", (uint8_t)s_sharedData->versionMinor);
         printf("%hu ", (uint8_t)s_sharedData->versionPatch);
         printf("%c", (char)s_sharedData->buildType);
         gotoxy(0, 17);
-        printf("rev %X%X", s_sharedData->git_sha1_h, s_sharedData->git_sha1_l);
+        printf("SHA1 %X%X", s_sharedData->git_sha1_h, s_sharedData->git_sha1_l);
         if (s_sharedData->git_status)
         {
             printf(" dirty");

@@ -32,6 +32,7 @@ use crate::gb_savefile::{GbRtcSaveStateProvider, GbSavefile};
 use crate::hyperram::WriteBlocking as HyperRamWriteBlocking;
 use crate::rom_info::RomInfo;
 use crate::ws2812_spi::Ws2812Led;
+use crate::ProductionData;
 
 #[repr(C, packed(1))]
 struct SharedGameboyData {
@@ -41,6 +42,7 @@ struct SharedGameboyData {
     version_major: u8,
     version_minor: u8,
     version_patch: u8,
+    hardware_revision: u8,
     loaded_banks: u16,
     num_banks: u16,
     msg_id_gb_2_rp: u8,
@@ -87,6 +89,7 @@ pub struct GbBootloader<
     hyperram: &'a mut dyn HyperRamWriteBlocking,
     led: &'a mut dyn Ws2812Led,
     rtc: &'a mut dyn DateTimeAccess<Error = DTAError>,
+    production_data: &'a ProductionData,
 }
 
 impl<
@@ -120,6 +123,7 @@ where
         hyperram: &'a mut dyn HyperRamWriteBlocking,
         led: &'a mut dyn Ws2812Led,
         rtc: &'a mut dyn DateTimeAccess<Error = DTAError>,
+        production_data: &'a ProductionData,
     ) -> GbBootloader<'a, 'd, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES, PIO, SM, PinError, DTAError>
     {
         Self {
@@ -133,6 +137,7 @@ where
             hyperram,
             led,
             rtc,
+            production_data,
         }
     }
 
@@ -169,8 +174,9 @@ where
         shared_data.version_minor = u8::from_str_radix(env!("VERSION_MINOR"), 10).unwrap();
         shared_data.version_patch = u8::from_str_radix(env!("VERSION_PATCH"), 10).unwrap();
         shared_data.build_type = env!("RELEASE_TYPE").chars().nth(0).unwrap() as c_char;
+        shared_data.hardware_revision = self.production_data.hardware_revision as u8;
 
-        let mut used_data = 16usize; // offset that makes it compatible to the v1 cartridge bootloader
+        let mut used_data = 17usize; // offset that makes it compatible to the v1 cartridge bootloader
         let mut num_roms = 0u8;
 
         // Try and access Volume 0 (i.e. the first partition).
