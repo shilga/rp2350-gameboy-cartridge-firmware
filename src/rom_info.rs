@@ -48,7 +48,7 @@ impl RomInfo {
             0x05u8..=0x07u8 => MbcType::Mbc2,
             0x0Fu8..=0x10u8 => {
                 has_rtc = true;
-                
+
                 MbcType::Mbc3
             }
             0x11u8..=0x13u8 => MbcType::Mbc3,
