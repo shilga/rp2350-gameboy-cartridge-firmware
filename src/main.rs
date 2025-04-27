@@ -174,7 +174,7 @@ type VolumeManagerType<'d> = VolumeManager<
     >,
     DummyTimesource,
 >;
-static mut VOLUME_MANAGER: StaticCell<VolumeManagerType> = StaticCell::new();
+static VOLUME_MANAGER: StaticCell<VolumeManagerType> = StaticCell::new();
 
 static LOADED_ROM_INFO: StaticCell<RomInfo> = StaticCell::new();
 
@@ -381,8 +381,8 @@ async fn main(spawner: Spawner) {
         core::slice::from_raw_parts_mut(ptr::addr_of!(_s_gb_save_ram) as *mut u8, 0x20000)
     };
 
-    let mut gb_rom_ptr = unsafe { ptr::addr_of_mut!(_s_gb_rom_memory) };
-    let mut gb_ram_ptr = unsafe { ptr::addr_of_mut!(_s_gb_save_ram) };
+    let mut gb_rom_ptr = ptr::addr_of_mut!(_s_gb_rom_memory);
+    let mut gb_ram_ptr = ptr::addr_of_mut!(_s_gb_save_ram);
     let mut current_higher_base_addr: u32 = 0x4000u32;
 
     let _read_dma_lower = GbReadDmaConfig::new(
@@ -461,12 +461,10 @@ async fn main(spawner: Spawner) {
 
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.
-    let volume_mgr = unsafe {
-        VOLUME_MANAGER.init(embedded_sdmmc::VolumeManager::new(
-            sdcard,
-            DummyTimesource(),
-        ))
-    };
+    let volume_mgr = VOLUME_MANAGER.init(embedded_sdmmc::VolumeManager::new(
+        sdcard,
+        DummyTimesource(),
+    ));
 
     let rtc = MCP795XX.init(Mcp795xx::new(spi_dev_rtc));
 

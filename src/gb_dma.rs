@@ -28,7 +28,7 @@ use crate::gb_mbc::MbcRamControl;
 
 const REG_ALIAS_SET_BITS: u32 = 0x2u32 << 12u32;
 static mut DEV_NULL: u32 = 0;
-static mut DEV_NULL_PTR: *mut u32 = unsafe { ptr::addr_of_mut!(DEV_NULL) };
+static mut DEV_NULL_PTR: *mut u32 = ptr::addr_of_mut!(DEV_NULL);
 
 pub struct GbReadDmaConfig<'d> {
     _dma_ch0: PeripheralRef<'d, AnyChannel>,
@@ -188,7 +188,7 @@ impl<'d> GbReadSniffDmaConfig<'d> {
         });
         p1.read_addr().write_value(base_addr_ptr as u32);
         p1.write_addr()
-            .write_value(unsafe { ptr::addr_of_mut!(DEV_NULL) } as u32);
+            .write_value(ptr::addr_of_mut!(DEV_NULL) as u32);
         let mut dma1_cfg = pac::dma::regs::CtrlTrig(0);
         dma1_cfg.set_incr_read(false);
         dma1_cfg.set_incr_write(false);
@@ -554,7 +554,7 @@ impl<'d> GbDmaCommandMachine<'d> {
             },
             // load the addr of devnull into the write addr of MEMORY_ACCESSOR_DMA
             DmaCommand {
-                read_addr: unsafe { ptr::addr_of!(DEV_NULL_PTR) } as *const u32,
+                read_addr: ptr::addr_of!(DEV_NULL_PTR) as *const u32,
                 write_addr: mem_accessor_regs.write_addr().as_ptr(),
             },
             // load the addr from the rx-fifo of the PIO-SM triggering this transfer
@@ -626,11 +626,11 @@ impl<'d> GbDmaCommandMachine<'d> {
             // dummy load the addr from the rx-fifo of the PIO-SM triggering this transfer
             DmaCommand {
                 read_addr: ram_write_addr_read_target.rx_address_count().0 as *const u32,
-                write_addr: unsafe { ptr::addr_of!(DEV_NULL) } as *const u32,
+                write_addr: ptr::addr_of!(DEV_NULL) as *const u32,
             },
             // load the addr of _devNull into write addr of MEMORY_ACCESSOR_DMA
             DmaCommand {
-                read_addr: unsafe { ptr::addr_of!(DEV_NULL_PTR) } as *const u32,
+                read_addr: ptr::addr_of!(DEV_NULL_PTR) as *const u32,
                 write_addr: (mem_accessor_regs.write_addr().as_ptr() as u32 | REG_ALIAS_SET_BITS)
                     as *const u32,
             },
@@ -667,7 +667,7 @@ impl<'d> GbDmaCommandMachine<'d> {
             // dummy read the addr from the rx-fifo of the PIO-SM triggering this transfer
             DmaCommand {
                 read_addr: ram_read_addr_read_target.rx_address_count().0 as *const u32,
-                write_addr: unsafe { ptr::addr_of!(DEV_NULL) },
+                write_addr: ptr::addr_of!(DEV_NULL),
             },
             // load the base addr, write it into the read-addr of the MEMORY_ACCESSOR_DMA, or-ing it with the addr received and trigger the MEMORY_ACCESSOR_DMA transfer
             DmaCommand {
@@ -697,7 +697,7 @@ impl<'d> GbDmaCommandMachine<'d> {
             // dummy load the addr from the rx-fifo of the PIO-SM triggering this transfer
             DmaCommand {
                 read_addr: ram_write_addr_read_target.rx_address_count().0 as *const u32,
-                write_addr: unsafe { ptr::addr_of!(DEV_NULL) } as *const u32,
+                write_addr: ptr::addr_of!(DEV_NULL) as *const u32,
             },
             // load the current rtc register addr into the write addr of MEMORY_ACCESSOR_DMA
             DmaCommand {
