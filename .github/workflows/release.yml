@@ -1,0 +1,86 @@
+# This starter workflow is for a CMake project running on a single platform. There is a different starter workflow if you need cross-platform coverage.
+# See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-multi-platform.yml
+name: Build release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*' # Push events to any matching semantic tag. For example, v1.10.1 or v2.0.0 or v3.0.0-alpha.
+        # For more details, see https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: 
+      image: shilga/rp2350-croco-cartridge-devcontainer-rust:v0.3
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build
+      # Build your program with the given configuration
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+        echo "GITHUB_SHA=$GITHUB_SHA" >> $GITHUB_ENV
+        echo 'github.workspace = ${{ github.workspace }}'
+        echo "GITHUB_WORKSPACE = $GITHUB_WORKSPACE"
+        echo 'runner.workspace = ${{ runner.workspace }}'
+        echo "RUNNER_WORKSPACE = $RUNNER_WORKSPACE"
+        echo "user: $(id -u -n)"
+        echo "PATH: $PATH"
+        echo "RUSTUP_HOME: $RUSTUP_HOME"
+        cat /usr/local/rustup/settings.toml
+        version=$(echo '${{ github.ref_name }}' | cut -c2- )
+        echo "version: $version"
+        version_major="$(echo $version | cut -d'.' -f1 )"
+        version_minor="$(echo $version | cut -d'.' -f2 )"
+        version_patch="$(echo $version | cut -d'.' -f3 )"
+        VERSION_MAJOR=$version_major VERSION_MINOR=$version_minor VERSION_PATCH=$version_patch RELEASE_TYPE=R cargo build --release
+
+    - name: rename elf file
+      # Build your program with the given configuration
+      run: |
+        mv ${{env.GITHUB_WORKSPACE}}/target/thumbv8m.main-none-eabihf/release/rp2350-gameboy-cartridge ${{env.GITHUB_WORKSPACE}}/target/thumbv8m.main-none-eabihf/release/rp2350-gameboy-cartridge.elf
+
+    - name: Package artifacts
+      run: |
+        cd ${{env.GITHUB_WORKSPACE}}/target/thumbv8m.main-none-eabihf/release
+        tar cvzf rp2350b-gb-cartridge-${{ github.ref_name }}.tgz *.elf
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: rp2350b-gameboy-cartridge-${{ github.ref_name }}
+        path: |
+          ${{env.GITHUB_WORKSPACE}}/target/thumbv8m.main-none-eabihf/release/*.tgz
+
+  create_release:
+    name: Create release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: list files
+        run: ls
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          prerelease: false
+          draft: true
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: "*.tgz"
