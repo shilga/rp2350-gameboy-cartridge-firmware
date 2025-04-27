@@ -22,9 +22,10 @@ use embassy_rp::{
     gpio::{Drive, SlewRate},
     pac,
     pio::{
-        Common, Config, Direction, Instance, InstanceMemory, Pin, PioPin, ShiftConfig,
-        ShiftDirection, StateMachine,
+        program::pio_file, Common, Config, Direction, Instance, InstanceMemory, Pin, PioPin,
+        ShiftConfig, ShiftDirection, StateMachine,
     },
+    Peri,
 };
 
 use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
@@ -53,17 +54,17 @@ pub struct HyperRamPins<'d, P: Instance> {
 impl<'d, P: Instance> HyperRamPins<'d, P> {
     pub fn new(
         pio: &mut Common<'d, P>,
-        rwds_pin: impl PioPin,
-        clk_pin: impl PioPin,
-        cs_pin: impl PioPin,
-        dq0_pin: impl PioPin,
-        dq1_pin: impl PioPin,
-        dq2_pin: impl PioPin,
-        dq3_pin: impl PioPin,
-        dq4_pin: impl PioPin,
-        dq5_pin: impl PioPin,
-        dq6_pin: impl PioPin,
-        dq7_pin: impl PioPin,
+        rwds_pin: Peri<'d, impl PioPin>,
+        clk_pin: Peri<'d, impl PioPin>,
+        cs_pin: Peri<'d, impl PioPin>,
+        dq0_pin: Peri<'d, impl PioPin>,
+        dq1_pin: Peri<'d, impl PioPin>,
+        dq2_pin: Peri<'d, impl PioPin>,
+        dq3_pin: Peri<'d, impl PioPin>,
+        dq4_pin: Peri<'d, impl PioPin>,
+        dq5_pin: Peri<'d, impl PioPin>,
+        dq6_pin: Peri<'d, impl PioPin>,
+        dq7_pin: Peri<'d, impl PioPin>,
     ) -> Self {
         let mut ctrl_pins: [embassy_rp::pio::Pin<'_, P>; 3] = [
             pio.make_pio_pin(rwds_pin),
@@ -117,7 +118,7 @@ impl<'a, 'd, P: Instance, const S: usize> HyperRam<'a, 'd, P, S> {
         sm: &'a mut StateMachine<'d, P, S>,
         pins: &HyperRamPins<'d, P>,
     ) -> Self {
-        let program = pio_proc::pio_file!("./pio/hyperram.pio");
+        let program = pio_file!("./pio/hyperram.pio");
 
         let mut cfg = Config::default();
 
@@ -338,7 +339,7 @@ impl<'d, P: Instance, const S: usize> HyperRamReadOnly<'d, P, S> {
         mut sm: StateMachine<'d, P, S>,
         pins: HyperRamPins<'d, P>,
     ) -> Self {
-        let program = pio_proc::pio_file!("./pio/hyperram_ro.pio");
+        let program = pio_file!("./pio/hyperram_ro.pio");
 
         let mut cfg = Config::default();
 

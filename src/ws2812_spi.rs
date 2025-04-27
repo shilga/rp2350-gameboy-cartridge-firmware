@@ -15,7 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use embassy_rp::{into_ref, pac, peripherals, spi, spi::MosiPin, Peripheral, PeripheralRef};
+use embassy_rp::{pac, peripherals, spi, spi::MosiPin, Peri};
 use smart_leds::RGB8;
 
 pub trait Ws2812Led {
@@ -30,7 +30,7 @@ const TARGET_BAUDRATE: u32 = 2800000u32;
 /// As the there is a FIFO of 8 times 16 bit one RGB state can be transmitted instantly
 #[allow(private_bounds)]
 pub struct Ws2812Spi<'d, T: Instance> {
-    inst: PeripheralRef<'d, T>,
+    inst: Peri<'d, T>,
     buffer: [u8; 16],
     //    phantom: PhantomData<(&'d mut T, M)>,
 }
@@ -92,12 +92,7 @@ unsafe fn fill_buffer(color: u8, buffer_ptr: *mut u8) {
 
 #[allow(private_bounds)]
 impl<'d, T: Instance> Ws2812Spi<'d, T> {
-    pub fn new(
-        inst: impl Peripheral<P = T> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
-    ) -> Self {
-        into_ref!(mosi, inst);
-
+    pub fn new(inst: Peri<'d, T>, mosi: Peri<'d, impl MosiPin<T>>) -> Self {
         let mosi_pin = mosi.pin() as usize;
 
         let mosi_pad_ctrl = pac::PADS_BANK0.gpio(mosi_pin);

@@ -22,7 +22,6 @@ use embassy_executor::{Executor, Spawner};
 use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
 use embassy_rp::multicore::{spawn_core1, Stack};
-use embassy_rp::otp;
 use embassy_rp::peripherals::{PIN_46, SPI1, USB};
 use embassy_rp::peripherals::{PIO0, PIO1, PIO2, SPI0, UART0};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
@@ -32,8 +31,7 @@ use embassy_rp::spinlock_mutex::SpinlockRawMutex;
 use embassy_rp::uart::UartTx;
 use embassy_rp::uart::{self};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
-use embassy_rp::{bind_interrupts, spi};
-use embassy_rp::{clocks, config as rpconfig, pac};
+use embassy_rp::{bind_interrupts, clocks, config as rpconfig, otp, pac, spi, Peri};
 
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 
@@ -360,7 +358,7 @@ async fn main(spawner: Spawner) {
         p.PIN_20, p.PIN_21, p.PIN_22, p.PIN_23, p.PIN_24, p.PIN_25, p.PIN_26, p.PIN_27,
         p.PIN_28, p.PIN_29, p.PIN_30, p.PIN_31, p.PIN_32, p.PIN_33, p.PIN_34, p.PIN_35,
         p.PIN_36, p.PIN_37, p.PIN_38, p.PIN_39, p.PIN_40, p.PIN_41, p.PIN_42, p.PIN_43,
-        None::<PIN_46>
+        None::<Peri<'_, PIN_46>>
     );
     let mut gb_rom_detect_pio = GbRomDetect::new(&mut pio1, &pac::PIO1, sm1_2);
     let mut gb_rom_lower_pio = GbRomLower::new(&mut pio1, &pac::PIO1, sm1_0, &gb_pio_pins);
@@ -386,9 +384,9 @@ async fn main(spawner: Spawner) {
     let mut current_higher_base_addr: u32 = 0x4000u32;
 
     let _read_dma_lower = GbReadDmaConfig::new(
-        p.DMA_CH0,
-        p.DMA_CH1,
-        p.DMA_CH2,
+        p.DMA_CH0.into(),
+        p.DMA_CH1.into(),
+        p.DMA_CH2.into(),
         ptr::addr_of_mut!(gb_rom_ptr),
         &gb_rom_lower_pio,
         &gb_data_out_pio,
@@ -401,7 +399,11 @@ async fn main(spawner: Spawner) {
 
     // DMA_COMMAND_ENGINE must be allocated statically as all the command blocks need to be located at a fixed position
     let dma_command_machine = GB_DMA_COMMAND_ENGINE.init(GbDmaCommandMachine::new(
-        p.DMA_CH3, p.DMA_CH4, p.DMA_CH5, p.DMA_CH6, p.DMA_CH7,
+        p.DMA_CH3.into(),
+        p.DMA_CH4.into(),
+        p.DMA_CH5.into(),
+        p.DMA_CH6.into(),
+        p.DMA_CH7.into(),
     ));
     dma_command_machine.init(
         &gb_ram_read_pio,
@@ -620,10 +622,10 @@ async fn main(spawner: Spawner) {
     }
 
     let _hyperram_gb_dma = GbReadSniffDmaConfig::new(
-        p.DMA_CH9,
-        p.DMA_CH10,
-        p.DMA_CH11,
-        p.DMA_CH12,
+        p.DMA_CH9.into(),
+        p.DMA_CH10.into(),
+        p.DMA_CH11.into(),
+        p.DMA_CH12.into(),
         &gb_rom_higher_pio,
         &hyperram,
         &hyperram,
@@ -657,9 +659,9 @@ async fn usb_task(mut usb: MyUsbDevice) -> ! {
 
 #[embassy_executor::task]
 async fn core1_task(
-    button_pin: AnyPin,
+    button_pin: Peri<'static, AnyPin>,
     led: &'static mut dyn Ws2812Led,
-    volume_mgr: &'static mut VolumeManagerType<'_>,
+    volume_mgr: &'static mut VolumeManagerType<'static>,
     rom_info: &'static RomInfo,
     saveram_memory: &'static [u8],
     timesource: &'static mut dyn DateTimeAccess<

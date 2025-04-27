@@ -19,9 +19,10 @@ use crate::dma_helper::{DmaReadTarget, DmaWriteTarget};
 use embassy_rp::{
     pac,
     pio::{
-        Common, Config, Direction, ExecConfig, Instance, Pin, PinConfig, PioPin, ShiftConfig,
-        ShiftDirection, StateMachine, StateMachineRx,
+        program::pio_file, Common, Config, Direction, ExecConfig, Instance, Pin, PinConfig, PioPin,
+        ShiftConfig, ShiftDirection, StateMachine, StateMachineRx,
     },
+    Peri,
 };
 
 pub struct GbPioPins<'d, P: Instance> {
@@ -33,34 +34,34 @@ pub struct GbPioPins<'d, P: Instance> {
 impl<'d, P: Instance> GbPioPins<'d, P> {
     pub fn new(
         pio: &mut Common<'d, P>,
-        clk_pin: impl PioPin,
-        rd_pin: impl PioPin,
-        cs_pin: impl PioPin,
-        a0_pin: impl PioPin,
-        a1_pin: impl PioPin,
-        a2_pin: impl PioPin,
-        a3_pin: impl PioPin,
-        a4_pin: impl PioPin,
-        a5_pin: impl PioPin,
-        a6_pin: impl PioPin,
-        a7_pin: impl PioPin,
-        a8_pin: impl PioPin,
-        a9_pin: impl PioPin,
-        a10_pin: impl PioPin,
-        a11_pin: impl PioPin,
-        a12_pin: impl PioPin,
-        a13_pin: impl PioPin,
-        a14_pin: impl PioPin,
-        a15_pin: impl PioPin,
-        d0_pin: impl PioPin,
-        d1_pin: impl PioPin,
-        d2_pin: impl PioPin,
-        d3_pin: impl PioPin,
-        d4_pin: impl PioPin,
-        d5_pin: impl PioPin,
-        d6_pin: impl PioPin,
-        d7_pin: impl PioPin,
-        debug_pin: Option<impl PioPin>,
+        clk_pin: Peri<'d, impl PioPin>,
+        rd_pin: Peri<'d, impl PioPin>,
+        cs_pin: Peri<'d, impl PioPin>,
+        a0_pin: Peri<'d, impl PioPin>,
+        a1_pin: Peri<'d, impl PioPin>,
+        a2_pin: Peri<'d, impl PioPin>,
+        a3_pin: Peri<'d, impl PioPin>,
+        a4_pin: Peri<'d, impl PioPin>,
+        a5_pin: Peri<'d, impl PioPin>,
+        a6_pin: Peri<'d, impl PioPin>,
+        a7_pin: Peri<'d, impl PioPin>,
+        a8_pin: Peri<'d, impl PioPin>,
+        a9_pin: Peri<'d, impl PioPin>,
+        a10_pin: Peri<'d, impl PioPin>,
+        a11_pin: Peri<'d, impl PioPin>,
+        a12_pin: Peri<'d, impl PioPin>,
+        a13_pin: Peri<'d, impl PioPin>,
+        a14_pin: Peri<'d, impl PioPin>,
+        a15_pin: Peri<'d, impl PioPin>,
+        d0_pin: Peri<'d, impl PioPin>,
+        d1_pin: Peri<'d, impl PioPin>,
+        d2_pin: Peri<'d, impl PioPin>,
+        d3_pin: Peri<'d, impl PioPin>,
+        d4_pin: Peri<'d, impl PioPin>,
+        d5_pin: Peri<'d, impl PioPin>,
+        d6_pin: Peri<'d, impl PioPin>,
+        d7_pin: Peri<'d, impl PioPin>,
+        debug_pin: Option<Peri<'d, impl PioPin>>,
     ) -> Self {
         let mut ctrl_pins: [embassy_rp::pio::Pin<'_, P>; 3] = [
             pio.make_pio_pin(clk_pin),
@@ -145,7 +146,7 @@ impl<'d, P: Instance, const S: usize> GbDataOut<'d, P, S> {
         mut sm: StateMachine<'d, P, S>,
         pins: &GbPioPins<'d, P>,
     ) -> Self {
-        let program = pio_proc::pio_file!(
+        let program = pio_file!(
             "./pio/gameboy_bus.pio",
             select_program("gameboy_bus_write_to_data"),
             options(max_program_size = 32) // Optional, defaults to 32
@@ -213,7 +214,7 @@ impl<'d, P: Instance, const S: usize> GbRomDetect<'d, P, S> {
         _p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
     ) -> Self {
-        let program = pio_proc::pio_file!(
+        let program = pio_file!(
             "./pio/gameboy_bus.pio",
             select_program("gameboy_bus_detect_a15_low_a14_irqs"),
             options(max_program_size = 32) // Optional, defaults to 32
@@ -261,7 +262,7 @@ impl<'d, P: Instance, const S: usize> GbRomLower<'d, P, S> {
         mut sm: StateMachine<'d, P, S>,
         _pins: &GbPioPins<'d, P>,
     ) -> Self {
-        let program = pio_proc::pio_file!(
+        let program = pio_file!(
             "./pio/gameboy_bus.pio",
             select_program("gameboy_bus_rom_low"),
             options(max_program_size = 32) // Optional, defaults to 32
@@ -328,7 +329,7 @@ impl<'d, P: Instance, const S: usize> GbRomHigher<'d, P, S> {
         mut sm: StateMachine<'d, P, S>,
         _pins: &GbPioPins<'d, P>,
     ) -> Self {
-        let program = pio_proc::pio_file!(
+        let program = pio_file!(
             "./pio/gameboy_bus.pio",
             select_program("gameboy_bus_rom_high"),
             options(max_program_size = 32) // Optional, defaults to 32
@@ -394,7 +395,7 @@ impl<'d, P: Instance, const S: usize> GbRamRead<'d, P, S> {
         p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
     ) -> Self {
-        let program = pio_proc::pio_file!(
+        let program = pio_file!(
             "./pio/gameboy_bus.pio",
             select_program("gameboy_saveram_read"),
             options(max_program_size = 32) // Optional, defaults to 32
@@ -463,7 +464,7 @@ impl<'d, P: Instance, const S: usize> GbRamWrite<'d, P, S> {
         p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
     ) -> Self {
-        let program = pio_proc::pio_file!(
+        let program = pio_file!(
             "./pio/gameboy_bus.pio",
             select_program("gameboy_saveram_write"),
             options(max_program_size = 32) // Optional, defaults to 32
@@ -530,7 +531,7 @@ impl<'d, P: Instance, const S: usize> GbMbcCommands<'d, P, S> {
         p: &'static pac::pio::Pio,
         mut sm: StateMachine<'d, P, S>,
     ) -> Self {
-        let program = pio_proc::pio_file!(
+        let program = pio_file!(
             "./pio/gameboy_bus.pio",
             select_program("gameboy_mbc_commands"),
             options(max_program_size = 32) // Optional, defaults to 32

@@ -6,15 +6,13 @@ license = "GPLv3"
 
 
 [dependencies]
-embassy-embedded-hal = { git = "https://github.com/shilga/embassy", features = ["defmt"] }
-embassy-sync = { git = "https://github.com/shilga/embassy", features = ["defmt"] }
-embassy-executor = { git = "https://github.com/shilga/embassy", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { git = "https://github.com/shilga/embassy", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { git = "https://github.com/shilga/embassy", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xb", "binary-info"] }
-embassy-usb = { git = "https://github.com/shilga/embassy", features = ["defmt"] }
-embassy-futures = { git = "https://github.com/shilga/embassy" }
-embassy-usb-logger = { git = "https://github.com/shilga/embassy" }
-
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "05a6f7a7957d891c20f00f428a36abb0da1c921a", features = ["defmt"] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "05a6f7a7957d891c20f00f428a36abb0da1c921a", features = ["defmt"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "05a6f7a7957d891c20f00f428a36abb0da1c921a", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "05a6f7a7957d891c20f00f428a36abb0da1c921a", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "05a6f7a7957d891c20f00f428a36abb0da1c921a", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xb", "binary-info"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "05a6f7a7957d891c20f00f428a36abb0da1c921a", features = ["defmt"] }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "05a6f7a7957d891c20f00f428a36abb0da1c921a", features = ["defmt"] }
 
 defmt = "0.3"
 #defmt-rtt = "0.4"
@@ -31,9 +29,6 @@ crc16 = "0.4.0"
 cortex-m = { version = "0.7.6", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"
 critical-section = "1.1"
-pio = "0.2.1"
-pio-proc = "0.2.0"
-
 smart-leds = "0.3.0"
 
 cstr_core = { version = "0.2.6", default-features = false }
