@@ -10,12 +10,17 @@ Select the ROM you want to play in the menu and press A.
 Open repository in VS Code with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) 
 addon installed. VS Code should ask if it shall open the workspace in the devcontainer. 
 
-Open terminal in VS Code and build with CMake:
-```cargo build --release
+Open terminal in VS Code and build with Cargo:
+```
+cargo build --release
 ```
 
 ## How to flash the firmware
-TODO
+You can upload the new firmware via USB. The firmware is able to receive commands from picotool and jumps into the Pico bootloader.
+This command will send the cartridge into bootloader and flashes a new ELF from an official release or custom build:
+```
+picotool load -u -v -x -t elf target/thumbv8m.main-none-eabihf/release/rp2350-gameboy-cartridge -f
+```
 
 ## How does it work?
 The ROM is loaded from the sd card to the Hyperram connected to he microcontroller.
@@ -46,7 +51,7 @@ If no ROMs with RTC support are played there is no need to setup the RTC. The ca
 Yes. 128k saves are supported. With the newest releases it also runs on the GBC.
 
 ## How can I get the needed hardware?
-Find the Kicad project files in this [repo](https://github.com/shilga/rp2040-gameboy-cartridge). Or order one on [Tindie](https://www.tindie.com/products/zeraphim/rp2350b-based-gameboy-cartridge/).
+Find the Kicad project files in this [repo](https://github.com/shilga/rp-gameboy-cartridge-hw/tree/master/KiCad/V2/GameboyCartridgeV2.1). Or order one on [Tindie](https://www.tindie.com/products/zeraphim/rp2350b-based-gameboy-cartridge/).
 
 
 ## Discord
