@@ -21,6 +21,7 @@ use arrayvec::ArrayString;
 use core::str;
 use defmt::error;
 
+#[derive(Debug)]
 pub enum MbcType {
     None,
     Mbc1,

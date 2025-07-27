@@ -46,6 +46,8 @@ impl Mbc for NoMbc {
 pub struct Mbc1<'a, 'd, PIO: Instance, const SM: usize> {
     rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
     current_rom_bank_pointer: NonNull<u32>,
+    current_ram_bank_pointer: NonNull<*mut u8>,
+    gb_ram_memory: &'a mut [u8],
     ram_control: &'a mut dyn MbcRamControl,
 }
 
@@ -53,12 +55,17 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc1<'a, 'd, PIO, SM> {
     pub fn new(
         rx_fifo: &'a mut StateMachineRx<'d, PIO, SM>,
         current_rom_bank: *mut u32,
+        ram_bank_pointer: *mut *mut u8,
+        gb_ram_memory: &'a mut [u8],
         ram_control: &'a mut dyn MbcRamControl,
     ) -> Self {
         let current_rom_bank_pointer = NonNull::new(current_rom_bank).unwrap();
+        let current_ram_bank_pointer = NonNull::new(ram_bank_pointer).unwrap();
         Self {
             rx_fifo,
             current_rom_bank_pointer,
+            current_ram_bank_pointer,
+            gb_ram_memory,
             ram_control,
         }
     }
@@ -97,7 +104,14 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc1<'a, 'd, PIO, SM> {
                 }
                 0x4000u32 => {
                     if mode != 0 {
-                        // ram bank
+                        unsafe {
+                            ptr::write_volatile(
+                                self.current_ram_bank_pointer.as_ptr(),
+                                self.gb_ram_memory
+                                    .as_mut_ptr()
+                                    .add((data & 0x03) as usize * 0x2000usize),
+                            )
+                        }
                     } else {
                         rom_bank_high = data & 0x03u8;
                     }
@@ -210,7 +224,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Mbc for Mbc3<'a, 'd, PIO, SM> {
                                 self.current_ram_bank_pointer.as_ptr(),
                                 self.gb_ram_memory
                                     .as_mut_ptr()
-                                    .add((ram_bank & 0x03) as usize * 0x2000usize),
+                                    .add((ram_bank & 0x07) as usize * 0x2000usize),
                             )
                         }
                         if ram_enabled {
