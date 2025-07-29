@@ -394,6 +394,7 @@ where
                         "Unable to read from savefile {}",
                         defmt::Debug2Format(&error)
                     );
+                    saveram_memory.fill(0u8); // some games don't have proper checksum on save
                 }
             }
         }
