@@ -161,6 +161,9 @@ where
                 .as_mut()
                 .unwrap()
         };
+
+        bootloader_data.fill(0u8);
+
         shared_data.msg_id_rp_2_gb = 0;
         let git_short_hash =
             u32::from_str_radix(built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("0"), 16).unwrap_or(0);
