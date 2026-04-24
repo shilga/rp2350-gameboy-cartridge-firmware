@@ -79,7 +79,7 @@ mod gb_dma;
 use gb_dma::{GbDmaCommandMachine, GbReadDmaConfig, GbReadSniffDmaConfig};
 
 mod gb_mbc;
-use gb_mbc::{Mbc, Mbc1, Mbc3, Mbc5, MbcRamControl, NoMbc};
+use gb_mbc::{Huc3, Mbc, Mbc1, Mbc3, Mbc5, MbcRamControl, NoMbc};
 
 mod gb_rtc;
 use gb_rtc::{GbRtc, GbRtcStateProvider, GbcRtcRegisters};
@@ -585,6 +585,14 @@ async fn main(spawner: Spawner) {
             gb_save_ram,
             dma_command_machine,
             gb_rtc,
+            rom_info.rom_bank_count,
+        ),
+        MbcType::Huc3 => &mut Huc3::new(
+            gb_mbc_commands_pio.rx_fifo(),
+            ptr::addr_of_mut!(current_higher_base_addr),
+            ptr::addr_of_mut!(gb_ram_ptr),
+            gb_save_ram,
+            dma_command_machine,
         ),
         MbcType::Mbc5 => &mut Mbc5::new(
             gb_mbc_commands_pio.rx_fifo(),

@@ -28,6 +28,7 @@ pub enum MbcType {
     Mbc2,
     Mbc3,
     Mbc5,
+    Huc3,
 }
 
 pub struct RomInfo {
@@ -42,6 +43,18 @@ impl RomInfo {
     pub fn from_rom_bytes(first_bank: &[u8], savefile_str: &str) -> Option<Self> {
         let mut has_rtc = false;
         let mbc_dat = first_bank[0x147];
+        let ram_bank_count_value = first_bank[0x149];
+        let lookup = [0u8, 0u8, 1u8, 4u8, 16u8, 8u8];
+        let ram_bank_count = match lookup.get(ram_bank_count_value as usize) {
+            Some(bank_count) => *bank_count,
+            None => {
+                error!(
+                    "Don't know how to interpret RAM size {:#x}",
+                    ram_bank_count_value
+                );
+                return None;
+            }
+        };
 
         let mbc = match mbc_dat {
             0x00u8 => MbcType::None,
@@ -54,15 +67,12 @@ impl RomInfo {
             }
             0x11u8..=0x13u8 => MbcType::Mbc3,
             0x19u8..=0x1Eu8 => MbcType::Mbc5,
+            0xFEu8 => MbcType::Huc3,
             _ => {
                 error!("Don't know how to interpret MBC type {:#x}", mbc_dat);
                 return None;
             }
         };
-
-        let lookup = [0u8, 0u8, 1u8, 4u8, 16u8, 8u8];
-        let ram_bank_count_value = first_bank[0x149];
-        let ram_bank_count = lookup[ram_bank_count_value as usize];
 
         let rom_bank_count = 1u16 << (first_bank[0x0148] as u16 + 1);
 
