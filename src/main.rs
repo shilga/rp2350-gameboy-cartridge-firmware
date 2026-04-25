@@ -593,6 +593,7 @@ async fn main(spawner: Spawner) {
             ptr::addr_of_mut!(gb_ram_ptr),
             gb_save_ram,
             dma_command_machine,
+            gb_rtc,
         ),
         MbcType::Mbc5 => &mut Mbc5::new(
             gb_mbc_commands_pio.rx_fifo(),

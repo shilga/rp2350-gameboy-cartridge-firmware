@@ -67,7 +67,11 @@ impl RomInfo {
             }
             0x11u8..=0x13u8 => MbcType::Mbc3,
             0x19u8..=0x1Eu8 => MbcType::Mbc5,
-            0xFEu8 => MbcType::Huc3,
+            0xFEu8 => {
+                has_rtc = true;
+
+                MbcType::Huc3
+            }
             _ => {
                 error!("Don't know how to interpret MBC type {:#x}", mbc_dat);
                 return None;

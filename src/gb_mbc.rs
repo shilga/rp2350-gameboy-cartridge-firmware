@@ -31,6 +31,8 @@ pub trait MbcRtcControl {
     fn process(&mut self);
     fn trigger_latch(&mut self);
     fn activate_register(&mut self, reg_num: u8);
+    fn capture_huc3_time(&mut self, rtc_memory: &mut [u8; 256]);
+    fn restore_huc3_time(&mut self, rtc_memory: &[u8; 256]);
 }
 
 pub trait Mbc {
@@ -277,6 +279,7 @@ pub struct Huc3<'a, 'd, PIO: Instance, const SM: usize> {
     current_ram_bank_pointer: NonNull<*mut u8>,
     gb_ram_memory: &'a mut [u8],
     ram_control: &'a mut dyn MbcRamControl,
+    rtc_control: &'a mut dyn MbcRtcControl,
     command_arg: u8,
     response: u8,
     semaphore: u8,
@@ -292,7 +295,9 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Huc3<'a, 'd, PIO, SM> {
         ram_bank_pointer: *mut *mut u8,
         gb_ram_memory: &'a mut [u8],
         ram_control: &'a mut dyn MbcRamControl,
+        rtc_control: &'a mut dyn MbcRtcControl,
     ) -> Self {
+        rtc_control.process();
         let current_rom_bank_pointer = NonNull::new(current_rom_bank).unwrap();
         let current_ram_bank_pointer = NonNull::new(ram_bank_pointer).unwrap();
         Self {
@@ -301,6 +306,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Huc3<'a, 'd, PIO, SM> {
             current_ram_bank_pointer,
             gb_ram_memory,
             ram_control,
+            rtc_control,
             command_arg: 0x80,
             response: 0x80,
             semaphore: 0x81,
@@ -311,6 +317,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Huc3<'a, 'd, PIO, SM> {
     }
 
     fn process_io(&mut self) {
+        self.rtc_control.process();
         if self.semaphore & 0x01 == 0 {
             self.execute_command();
             self.semaphore = 0x81;
@@ -340,6 +347,14 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Huc3<'a, 'd, PIO, SM> {
             }
             0x06 => {
                 result = match argument {
+                    0x00 => {
+                        self.rtc_control.capture_huc3_time(&mut self.rtc_memory);
+                        0x00
+                    }
+                    0x01 => {
+                        self.rtc_control.restore_huc3_time(&self.rtc_memory);
+                        0x00
+                    }
                     0x02 => 0x01,
                     _ => 0x00,
                 };
