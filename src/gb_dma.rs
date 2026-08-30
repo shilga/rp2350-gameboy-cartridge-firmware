@@ -265,6 +265,10 @@ pub struct GbDmaCommandMachine<'d> {
     current_ram_read_command: *const DmaCommand,
     current_ram_write_commands: *const DmaCommand,
     rtc_write_commands: [DmaCommand; 5],
+    huc3_io_read_commands: [DmaCommand; 5],
+    huc3_io_write_commands: [DmaCommand; 5],
+    huc3_io_read_ptr: *mut u8,
+    huc3_io_write_ptr: *mut u8,
 }
 
 impl<'d> GbDmaCommandMachine<'d> {
@@ -301,6 +305,14 @@ impl<'d> GbDmaCommandMachine<'d> {
                 read_addr: core::ptr::null(),
                 write_addr: core::ptr::null(),
             }; 5],
+            huc3_io_read_commands: [DmaCommand {
+                read_addr: core::ptr::null(),
+                write_addr: core::ptr::null(),
+            }; 5],
+            huc3_io_write_commands: [DmaCommand {
+                read_addr: core::ptr::null(),
+                write_addr: core::ptr::null(),
+            }; 5],
             ram_disabled_read_commands: [DmaCommand {
                 read_addr: core::ptr::null(),
                 write_addr: core::ptr::null(),
@@ -311,6 +323,8 @@ impl<'d> GbDmaCommandMachine<'d> {
             }; 5],
             current_ram_read_command: core::ptr::null(),
             current_ram_write_commands: core::ptr::null(),
+            huc3_io_read_ptr: core::ptr::null::<u8>() as *mut u8,
+            huc3_io_write_ptr: core::ptr::null::<u8>() as *mut u8,
         }
     }
 
@@ -362,6 +376,14 @@ impl<'d> GbDmaCommandMachine<'d> {
             self.create_ram_write_command_blocks(ram_write_addr_read_target, ram_base_addr_ptr);
         self.rtc_write_commands =
             self.create_rtc_write_command_blocks(ram_write_addr_read_target, rtc_real_ptr);
+        self.huc3_io_read_commands = self.create_rtc_read_command_blocks(
+            ram_read_addr_read_target,
+            ptr::addr_of!(self.huc3_io_read_ptr),
+        );
+        self.huc3_io_write_commands = self.create_rtc_write_command_blocks(
+            ram_write_addr_read_target,
+            ptr::addr_of!(self.huc3_io_write_ptr),
+        );
         self.current_ram_write_commands = self.ram_write_commands.as_ptr();
 
         /*
@@ -691,6 +713,11 @@ impl<'d> MbcRamControl for GbDmaCommandMachine<'d> {
         self.current_ram_write_commands = self.ram_write_commands.as_ptr();
     }
 
+    fn enable_ram_read_access(&mut self) {
+        self.current_ram_read_command = self.ram_read_commands.as_ptr();
+        self.current_ram_write_commands = self.ram_disabled_write_commands.as_ptr();
+    }
+
     fn disable_ram_access(&mut self) {
         self.current_ram_read_command = self.ram_disabled_read_commands.as_ptr();
         self.current_ram_write_commands = self.ram_disabled_write_commands.as_ptr();
@@ -699,5 +726,12 @@ impl<'d> MbcRamControl for GbDmaCommandMachine<'d> {
     fn enable_rtc_access(&mut self) {
         self.current_ram_read_command = self.rtc_read_commands.as_ptr();
         self.current_ram_write_commands = self.rtc_write_commands.as_ptr();
+    }
+
+    fn enable_huc3_io_access(&mut self, read_ptr: *mut u8, write_ptr: *mut u8) {
+        self.huc3_io_read_ptr = read_ptr;
+        self.huc3_io_write_ptr = write_ptr;
+        self.current_ram_read_command = self.huc3_io_read_commands.as_ptr();
+        self.current_ram_write_commands = self.huc3_io_write_commands.as_ptr();
     }
 }

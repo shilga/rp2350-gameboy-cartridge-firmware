@@ -125,6 +125,18 @@ where
         }
     }
 
+    fn read_huc3_counter(rtc_memory: &[u8; 256], offset: usize) -> u16 {
+        (rtc_memory[offset] as u16 & 0x0F)
+            | ((rtc_memory[offset + 1] as u16 & 0x0F) << 4)
+            | ((rtc_memory[offset + 2] as u16 & 0x0F) << 8)
+    }
+
+    fn write_huc3_counter(rtc_memory: &mut [u8; 256], offset: usize, value: u16) {
+        rtc_memory[offset] = (value & 0x0F) as u8;
+        rtc_memory[offset + 1] = ((value >> 4) & 0x0F) as u8;
+        rtc_memory[offset + 2] = ((value >> 8) & 0x0F) as u8;
+    }
+
     pub fn get_real_ptr(&mut self) -> *const *mut u8 {
         if self.real_ptr.is_null() {
             self.registers.lock(|registers| {
@@ -217,6 +229,40 @@ where
                 }
             });
         }
+    }
+
+    fn capture_huc3_time(&mut self, rtc_memory: &mut [u8; 256]) {
+        self.process();
+        self.registers.lock(|registers| {
+            let registers = registers.borrow();
+            let regs = unsafe { &registers.real.regs };
+            let minute_of_day = regs.hours as u16 * 60u16 + regs.minutes as u16;
+            let day = regs.days as u16 | ((regs.status as u16 & 0x01) << 8);
+
+            Self::write_huc3_counter(rtc_memory, 0x00, minute_of_day);
+            Self::write_huc3_counter(rtc_memory, 0x03, day);
+            rtc_memory[0x06] = regs.seconds & 0x0F;
+
+            Self::write_huc3_counter(rtc_memory, 0x10, minute_of_day);
+            Self::write_huc3_counter(rtc_memory, 0x13, day);
+        });
+    }
+
+    fn restore_huc3_time(&mut self, rtc_memory: &[u8; 256]) {
+        self.registers.lock(|registers| {
+            let mut registers = registers.borrow_mut();
+            let regs = unsafe { &mut registers.real.regs };
+            let minute_of_day = Self::read_huc3_counter(rtc_memory, 0x00) % 1440u16;
+            let day = Self::read_huc3_counter(rtc_memory, 0x03);
+
+            regs.seconds = 0;
+            regs.minutes = (minute_of_day % 60u16) as u8;
+            regs.hours = (minute_of_day / 60u16) as u8;
+            regs.days = (day & 0xFF) as u8;
+            regs.status = (regs.status & 0xFE) | ((day >> 8) as u8 & 0x01);
+            self.last_milli = Instant::now();
+            self.millies = 0;
+        });
     }
 }
 
